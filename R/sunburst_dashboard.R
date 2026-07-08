@@ -379,8 +379,11 @@ sunburst_polygon_selector <- function(
   geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
   div_id        <- paste0(id, "-polygon-selector-", filter_idx)
 
-  # Small boot script — runs after the main DOMContentLoaded (same event, later handler)
-  # Finds the already-registered dashboard and calls addPolygonSelector().
+  # Pre-compute JS values for optional args to keep sprintf() clean
+  parent_filter_js   <- if (is.null(parent_filter))   "null" else sprintf('\"%s\"', parent_filter)
+  geo_parent_prop_js <- if (is.null(geo_parent_prop)) "null" else sprintf('\"%s\"', geo_parent_prop)
+
+  # Boot script — finds the registered dashboard and attaches the polygon selector
   boot <- sprintf(
     paste0(
       'document.addEventListener("DOMContentLoaded", function() {',
@@ -393,12 +396,12 @@ sunburst_polygon_selector <- function(
       '    parentFilter:      %s,',
       '    parentProp:        %s',
       '  });',
-      '});',
+      '});'
     ),
     id, div_id, geo_script_id, filter_idx,
     geo_name_prop,
-    if (is.null(parent_filter))   "null" else paste0('"', parent_filter,   '"'),
-    if (is.null(geo_parent_prop)) "null" else paste0('"', geo_parent_prop, '"')
+    parent_filter_js,
+    geo_parent_prop_js
   )
 
   htmltools::tagList(
