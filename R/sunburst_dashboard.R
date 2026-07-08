@@ -353,15 +353,27 @@ geo_prepare <- function(
 #' @param geo_parent_prop The GeoJSON feature property name whose values
 #'   correspond to the \code{parent_filter} column. Defaults to
 #'   \code{parent_filter}.
+#' @param show_when_filter Optional filter column that must have a non-null
+#'   selection before the polygon selector is shown.
+#' @param layered If \code{TRUE}, the selector first renders grouped parent
+#'   polygons and drills down to child polygons after a click.
+#' @param zoom_to_visible If \code{TRUE}, automatically zoom the map to the
+#'   currently visible polygons.
+#' @param back_label Button label used to return from the drilled-down layer to
+#'   the parent layer.
 #' @return An \code{htmltools::tagList}.
 #' @export
 sunburst_polygon_selector <- function(
     ctx,
     geo,
     filter,
-    parent_filter   = NULL,
-    geo_name_prop   = NULL,
-    geo_parent_prop = NULL
+    parent_filter    = NULL,
+    geo_name_prop    = NULL,
+    geo_parent_prop  = NULL,
+    show_when_filter = NULL,
+    layered          = FALSE,
+    zoom_to_visible  = TRUE,
+    back_label       = "Terug naar hoger niveau"
 ) {
   .check_ctx(ctx)
   id      <- attr(ctx, "sunburstr_id")
@@ -370,40 +382,50 @@ sunburst_polygon_selector <- function(
   # Resolve filter index
   filter_cols <- vapply(config$filters, `[[`, "", "col")
   filter_idx  <- match(filter, filter_cols) - 1L
-  if (is.na(filter_idx))
+  if (is.na(filter_idx)) {
     stop("Filter '", filter, "' not found in sunburst_init() filters config.", call. = FALSE)
+  }
+
+  if (isTRUE(layered) && is.null(parent_filter)) {
+    stop("layered = TRUE requires parent_filter to be set.", call. = FALSE)
+  }
 
   geo_name_prop   <- geo_name_prop   %||% geo$name_col
   geo_parent_prop <- geo_parent_prop %||% parent_filter
 
+  as_js <- function(x) {
+    if (is.null(x)) "null" else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
+  }
+
   geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
   div_id        <- paste0(id, "-polygon-selector-", filter_idx)
-
-  # Small boot script — runs after the main DOMContentLoaded (same event, later handler)
-  # Finds the already-registered dashboard and calls addPolygonSelector().
-  # Pre-compute optional JS values — avoids conditional expressions inside sprintf()
-  # and eliminates the trailing-comma-in-paste0 parse error.
-  parent_filter_js   <- if (is.null(parent_filter))   "null" else sprintf('\"%s\"', parent_filter)
-  geo_parent_prop_js <- if (is.null(geo_parent_prop)) "null" else sprintf('\"%s\"', geo_parent_prop)
 
   boot <- sprintf(
     paste0(
       'document.addEventListener("DOMContentLoaded", function() {',
       '  var db = window.__quartoWidgets && window.__quartoWidgets["%s"];',
       '  if (db) db.addPolygonSelector({',
-      '    containerSelector: "#%s",',
+      '    containerSelector: "%s",',
       '    geoScriptId:       "%s",',
       '    filterLevel:       %d,',
-      '    nameProp:          "%s",',
+      '    nameProp:          %s,',
       '    parentFilter:      %s,',
-      '    parentProp:        %s',
+      '    parentProp:        %s,',
+      '    showWhenFilter:    %s,',
+      '    layered:           %s,',
+      '    zoomToVisible:     %s,',
+      '    backLabel:         %s',
       '  });',
       '});'
     ),
-    id, div_id, geo_script_id, filter_idx,
-    geo_name_prop,
-    if (is.null(parent_filter))   "null" else paste0('"', parent_filter,   '"'),
-    if (is.null(geo_parent_prop)) "null" else paste0('"', geo_parent_prop, '"')
+    id, paste0("#", div_id), geo_script_id, filter_idx,
+    as_js(geo_name_prop),
+    as_js(parent_filter),
+    as_js(geo_parent_prop),
+    as_js(show_when_filter),
+    if (isTRUE(layered)) "true" else "false",
+    if (isTRUE(zoom_to_visible)) "true" else "false",
+    as_js(back_label)
   )
 
   htmltools::tagList(

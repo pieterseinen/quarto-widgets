@@ -634,45 +634,112 @@
   // ════════════════════════════════════════════════════════════════
   class PolygonSelector {
     constructor({ container, geoData, filterLevel, nameProp,
-                  parentFilter, parentProp, data, state, eventBus }) {
-      this.el           = document.querySelector(container);
-      this.geo          = geoData;
-      this.filterLevel  = filterLevel;
-      this.nameProp     = nameProp;        // GeoJSON property matching the filter col
-      this.parentFilter = parentFilter;   // dashboard filter col of the parent (e.g. "gemeente")
-      this.parentProp   = parentProp;     // GeoJSON property matching the parent col
-      this.data         = data;
-      this.state        = state;
-      this.eb           = eventBus;
+                  parentFilter, parentProp, showWhenFilter,
+                  layered = false, zoomToVisible = true, backLabel = 'Terug naar hoger niveau',
+                  data, state, eventBus }) {
+      this.el             = document.querySelector(container);
+      this.geo            = geoData;
+      this.filterLevel    = filterLevel;
+      this.nameProp       = nameProp;
+      this.parentFilter   = parentFilter;
+      this.parentProp     = parentProp;
+      this.showWhenFilter = showWhenFilter;
+      this.layered        = !!layered;
+      this.zoomToVisible  = zoomToVisible !== false;
+      this.backLabel      = backLabel || 'Terug naar hoger niveau';
+      this.data           = data;
+      this.state          = state;
+      this.eb             = eventBus;
+      this.currentLevel   = this.layered ? 'parent' : 'child';
+      this.currentParentValue = null;
+      this.selectedParentValue = null;
       this._render();
-      // React to parent filter changes (gemeente changes → filter visible polygons)
       this.eb.on('filter-level-changed', vals => this._onFilterChanged(vals), false);
-      // Highlight polygon that matches an incoming wijk-selected event
       this.eb.on('wijk-selected', s => this._onWijkSelected(s), false);
+      this._onFilterChanged(this.eb.get('filter-level-changed') || {});
     }
 
     _render() {
       const W = 500, H = 380;
-      const proj   = d3.geoMercator().fitSize([W, H], this.geo);
-      const pathFn = d3.geoPath().projection(proj);
+      this.W = W; this.H = H;
+      this.proj = d3.geoMercator().fitSize([W, H], this.geo);
+      this.pathFn = d3.geoPath().projection(this.proj);
       const self   = this;
 
-      const svg = d3.select(this.el).append('svg')
+      this.el.innerHTML = '';
+      this.el.classList.toggle('polygon-selector--layered', this.layered);
+
+      this.toolbar = document.createElement('div');
+      this.toolbar.className = 'polygon-selector-toolbar';
+      this.el.appendChild(this.toolbar);
+
+      this.backButton = document.createElement('button');
+      this.backButton.type = 'button';
+      this.backButton.className = 'polygon-selector-back';
+      this.backButton.textContent = this.backLabel;
+      this.backButton.style.display = 'none';
+      this.backButton.addEventListener('click', () => this._goBack());
+      this.toolbar.appendChild(this.backButton);
+
+      this.message = document.createElement('div');
+      this.message.className = 'polygon-selector-message';
+      this.toolbar.appendChild(this.message);
+
+      this.svg = d3.select(this.el).append('svg')
         .attr('viewBox', `0 0 ${W} ${H}`)
         .attr('width', '100%').style('display', 'block');
 
-      this.paths = svg.selectAll('path')
-        .data(this.geo.features)
+      this.mapLayer = this.svg.append('g').attr('class', 'polygon-selector-layer');
+      this.parentFeatures = this.layered ? this._buildParentFeatures() : [];
+      this._drawCurrentLayer();
+    }
+
+    _buildParentFeatures() {
+      if (!this.parentProp) return [];
+      const groups = d3.group(this.geo.features, f => f.properties[this.parentProp]);
+      return Array.from(groups, ([parentValue, features]) => {
+        const geometries = features.map(f => f.geometry).filter(Boolean);
+        return {
+          type: 'Feature',
+          properties: {
+            [this.nameProp]: parentValue,
+            [this.parentProp]: parentValue,
+            __level: 'parent'
+          },
+          geometry: geometries.length === 1
+            ? geometries[0]
+            : { type: 'GeometryCollection', geometries }
+        };
+      }).filter(f => f.properties[this.nameProp]);
+    }
+
+    _getCurrentFeatures() {
+      if (this.layered && this.currentLevel === 'parent') {
+        return this.parentFeatures;
+      }
+      const parentValue = this.currentParentValue;
+      return (this.geo.features || []).filter(f => {
+        if (!parentValue || !this.parentProp) return true;
+        return f.properties[this.parentProp] === parentValue;
+      });
+    }
+
+    _drawCurrentLayer() {
+      const self = this;
+      const features = this._getCurrentFeatures();
+
+      this.mapLayer.selectAll('path').remove();
+
+      this.paths = this.mapLayer.selectAll('path')
+        .data(features, f => `${self.currentLevel}:${f.properties[self.nameProp]}`)
         .join('path')
-        .attr('d', pathFn)
+        .attr('d', this.pathFn)
         .attr('fill', '#dde4eb')
         .attr('stroke', '#fff')
         .attr('stroke-width', 0.8)
         .style('cursor', 'pointer')
         .on('mouseenter', function(ev, f) {
-          if (d3.select(this).attr('data-selected') !== 'true')
-            d3.select(this).attr('fill', '#a0b4c8');
-          // Show tooltip
+          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', '#a0b4c8');
           const tip = _getTooltip();
           tip.innerHTML = '<strong>' + f.properties[self.nameProp] + '</strong>';
           tip.style.opacity = '1';
@@ -682,29 +749,43 @@
           tip.style.left = (ev.clientX + 14) + 'px';
           tip.style.top  = (ev.clientY - 36) + 'px';
         })
-        .on('mouseleave', function(ev, f) {
-          if (d3.select(this).attr('data-selected') !== 'true')
-            d3.select(this).attr('fill', '#dde4eb');
+        .on('mouseleave', function() {
+          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', '#dde4eb');
           _getTooltip().style.opacity = '0';
         })
         .on('click', function(ev, f) {
           ev.stopPropagation();
-          self._emitSelection(f);
+          self._handleClick(f);
         });
+
+      this._updateBackButton();
+      this._updateMessage();
+      this._fitVisibleFeatures();
+    }
+
+    _handleClick(feature) {
+      if (this.layered && this.currentLevel === 'parent') {
+        this.selectedParentValue = feature.properties[this.nameProp];
+        this.currentParentValue = this.selectedParentValue;
+        this.currentLevel = 'child';
+        this._drawCurrentLayer();
+        return;
+      }
+      this._emitSelection(feature);
     }
 
     _emitSelection(feature) {
       const filterCol = this.data.filters[this.filterLevel]?.col;
       if (!filterCol) return;
       const myValue = feature.properties[this.nameProp];
-
-      // Collect parent filter values from the last known partial state
       const partial = this.eb.get('filter-level-changed') || {};
       const parentValues = {};
       this.data.filters.slice(0, this.filterLevel).forEach(f => {
         if (partial[f.col]) parentValues[f.col] = partial[f.col];
       });
-
+      if (this.parentFilter && this.currentParentValue) {
+        parentValues[this.parentFilter] = this.currentParentValue;
+      }
       const filterValues = { ...parentValues, [filterCol]: myValue };
       const selection = this.data.buildSelection(filterValues);
       if (!selection) { console.warn('[quartoWidgets] No data for polygon:', filterValues); return; }
@@ -712,15 +793,108 @@
       this.eb.emit('wijk-selected', selection);
     }
 
+    _fitVisibleFeatures() {
+      if (!this.zoomToVisible || !this.paths || !this.paths.size()) return;
+      const visible = this.paths.filter(function() {
+        return this.style.display !== 'none';
+      });
+      if (!visible.size()) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      visible.each((d, i, nodes) => {
+        const box = nodes[i].getBBox();
+        if (!box || !isFinite(box.x)) return;
+        minX = Math.min(minX, box.x);
+        minY = Math.min(minY, box.y);
+        maxX = Math.max(maxX, box.x + box.width);
+        maxY = Math.max(maxY, box.y + box.height);
+      });
+      if (!isFinite(minX) || maxX <= minX || maxY <= minY) {
+        this.mapLayer.attr('transform', null);
+        return;
+      }
+      const pad = 16;
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const scale = Math.min((this.W - 2 * pad) / width, (this.H - 2 * pad) / height, 8);
+      const tx = (this.W - scale * (minX + maxX)) / 2;
+      const ty = (this.H - scale * (minY + maxY)) / 2;
+      this.mapLayer
+        .transition().duration(300)
+        .attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+    }
+
+    _updateVisibility(vals) {
+      const requiredValue = this.showWhenFilter ? vals[this.showWhenFilter] : true;
+      const visible = !!requiredValue || !this.showWhenFilter;
+      this.el.classList.toggle('polygon-selector-hidden', !visible);
+      if (!visible) {
+        this.message.textContent = 'Maak eerst een selectie om de kaart te tonen.';
+        this.mapLayer.attr('transform', null);
+      }
+      return visible;
+    }
+
+    _updateMessage() {
+      if (this.showWhenFilter && this.el.classList.contains('polygon-selector-hidden')) return;
+      if (this.layered && this.currentLevel === 'parent') {
+        this.message.textContent = 'Klik op een polygon om naar het volgende niveau te gaan.';
+      } else if (this.layered && this.currentParentValue) {
+        this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
+      } else if (this.parentFilter && this.currentParentValue) {
+        this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
+      } else {
+        this.message.textContent = 'Klik op een polygon om te selecteren.';
+      }
+    }
+
+    _updateBackButton() {
+      if (!this.backButton) return;
+      this.backButton.style.display = this.layered && this.currentLevel === 'child' ? '' : 'none';
+    }
+
+    _goBack() {
+      this.currentLevel = 'parent';
+      this.currentParentValue = null;
+      this.selectedParentValue = null;
+      this.state.setSelection(null);
+      this.eb.emit('wijk-selected', null);
+      this._drawCurrentLayer();
+    }
+
     _onFilterChanged(vals) {
-      if (!this.parentFilter || !this.parentProp || !this.paths) return;
-      const parentValue = vals[this.parentFilter];
-      // Show only polygons whose parent property matches; show all when unset
-      this.paths.style('display', f =>
-        !parentValue || f.properties[this.parentProp] === parentValue ? null : 'none'
-      );
-      // Reset selection highlight when parent changes
-      this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+      if (!this._updateVisibility(vals)) return;
+
+      const parentValue = this.parentFilter ? vals[this.parentFilter] : null;
+      if (this.layered) {
+        if (parentValue && this.currentLevel === 'parent') {
+          this.currentParentValue = parentValue;
+          this.selectedParentValue = parentValue;
+          this.currentLevel = 'child';
+        } else if (parentValue && this.currentLevel === 'child') {
+          this.currentParentValue = parentValue;
+          this.selectedParentValue = parentValue;
+        } else if (!parentValue && this.currentLevel === 'child' && !this.selectedParentValue) {
+          this.currentParentValue = null;
+        }
+        this._drawCurrentLayer();
+        this._highlightCurrentSelection();
+        return;
+      }
+
+      this.currentParentValue = parentValue;
+      if (this.paths) {
+        this.paths.style('display', f =>
+          !parentValue || !this.parentProp || f.properties[this.parentProp] === parentValue ? null : 'none'
+        );
+        this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+        this._fitVisibleFeatures();
+      }
+      this._updateMessage();
+    }
+
+    _highlightCurrentSelection() {
+      const s = this.state.getSelection();
+      this._onWijkSelected(s);
     }
 
     _onWijkSelected(s) {
@@ -788,12 +962,13 @@
     // themselves to this dashboard's EventBus after DOMContentLoaded.
     const api = {
       state, data, sunburst, gauge,
-      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp }) {
+      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, zoomToVisible, backLabel }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
         new PolygonSelector({
           container: containerSelector, geoData, filterLevel,
-          nameProp, parentFilter, parentProp, data, state, eventBus
+          nameProp, parentFilter, parentProp, showWhenFilter,
+          layered, zoomToVisible, backLabel, data, state, eventBus
         });
       }
     };

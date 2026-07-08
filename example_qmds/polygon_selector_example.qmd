@@ -123,7 +123,7 @@ ctx
 
 ## Selectie
 
-Kies eerst een gemeente, klik dan op een wijk op de kaart.
+Kies eerst een gemeente. De polygon selector verschijnt daarna automatisch, zoomt in op de relevante polygons en start op gemeentelaag. Klik op een gemeente-polygon om door te gaan naar de wijken; gebruik daarna de terugknop om weer naar het hogere niveau te gaan.
 
 ::: {.columns}
 
@@ -151,11 +151,15 @@ sunburst_selectors(ctx, filter = "gemeente")
 #   geo_parent_prop = "gemeente" — the GeoJSON property that matches gemeente values
 sunburst_polygon_selector(
   ctx,
-  geo             = wijk_geo,
-  filter          = "wijk",
-  parent_filter   = "gemeente",
-  geo_name_prop   = "statnaam",
-  geo_parent_prop = "gemeente"
+  geo              = wijk_geo,
+  filter           = "wijk",
+  parent_filter    = "gemeente",
+  geo_name_prop    = "statnaam",
+  geo_parent_prop  = "gemeente",
+  show_when_filter = "gemeente",
+  layered          = TRUE,
+  zoom_to_visible  = TRUE,
+  back_label       = "Terug naar gemeenten"
 )
 ```
 
