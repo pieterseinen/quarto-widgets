@@ -176,6 +176,9 @@
       const vals = this._getValues(this.data.filters.length);
       const allSet = this.data.filters.length > 0 &&
                      this.data.filters.every((f, i) => !!vals[f.col]);
+      // Broadcast partial state so PolygonSelector can filter polygons
+      // even before all filter levels are set.
+      this.eb.emit('filter-level-changed', vals);
       if (!allSet) {
         this.state.setSelection(null);
         this.eb.emit('wijk-selected', null);
@@ -627,6 +630,115 @@
   }
 
   // ════════════════════════════════════════════════════════════════
+  // PolygonSelector — clickable SVG map that drives wijk-selected
+  // ════════════════════════════════════════════════════════════════
+  class PolygonSelector {
+    constructor({ container, geoData, filterLevel, nameProp,
+                  parentFilter, parentProp, data, state, eventBus }) {
+      this.el           = document.querySelector(container);
+      this.geo          = geoData;
+      this.filterLevel  = filterLevel;
+      this.nameProp     = nameProp;        // GeoJSON property matching the filter col
+      this.parentFilter = parentFilter;   // dashboard filter col of the parent (e.g. "gemeente")
+      this.parentProp   = parentProp;     // GeoJSON property matching the parent col
+      this.data         = data;
+      this.state        = state;
+      this.eb           = eventBus;
+      this._render();
+      // React to parent filter changes (gemeente changes → filter visible polygons)
+      this.eb.on('filter-level-changed', vals => this._onFilterChanged(vals), false);
+      // Highlight polygon that matches an incoming wijk-selected event
+      this.eb.on('wijk-selected', s => this._onWijkSelected(s), false);
+    }
+
+    _render() {
+      const W = 500, H = 380;
+      const proj   = d3.geoMercator().fitSize([W, H], this.geo);
+      const pathFn = d3.geoPath().projection(proj);
+      const self   = this;
+
+      const svg = d3.select(this.el).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%').style('display', 'block');
+
+      this.paths = svg.selectAll('path')
+        .data(this.geo.features)
+        .join('path')
+        .attr('d', pathFn)
+        .attr('fill', '#dde4eb')
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 0.8)
+        .style('cursor', 'pointer')
+        .on('mouseenter', function(ev, f) {
+          if (d3.select(this).attr('data-selected') !== 'true')
+            d3.select(this).attr('fill', '#a0b4c8');
+          // Show tooltip
+          const tip = _getTooltip();
+          tip.innerHTML = '<strong>' + f.properties[self.nameProp] + '</strong>';
+          tip.style.opacity = '1';
+        })
+        .on('mousemove', ev => {
+          const tip = _getTooltip();
+          tip.style.left = (ev.clientX + 14) + 'px';
+          tip.style.top  = (ev.clientY - 36) + 'px';
+        })
+        .on('mouseleave', function(ev, f) {
+          if (d3.select(this).attr('data-selected') !== 'true')
+            d3.select(this).attr('fill', '#dde4eb');
+          _getTooltip().style.opacity = '0';
+        })
+        .on('click', function(ev, f) {
+          ev.stopPropagation();
+          self._emitSelection(f);
+        });
+    }
+
+    _emitSelection(feature) {
+      const filterCol = this.data.filters[this.filterLevel]?.col;
+      if (!filterCol) return;
+      const myValue = feature.properties[this.nameProp];
+
+      // Collect parent filter values from the last known partial state
+      const partial = this.eb.get('filter-level-changed') || {};
+      const parentValues = {};
+      this.data.filters.slice(0, this.filterLevel).forEach(f => {
+        if (partial[f.col]) parentValues[f.col] = partial[f.col];
+      });
+
+      const filterValues = { ...parentValues, [filterCol]: myValue };
+      const selection = this.data.buildSelection(filterValues);
+      if (!selection) { console.warn('[quartoWidgets] No data for polygon:', filterValues); return; }
+      this.state.setSelection(selection);
+      this.eb.emit('wijk-selected', selection);
+    }
+
+    _onFilterChanged(vals) {
+      if (!this.parentFilter || !this.parentProp || !this.paths) return;
+      const parentValue = vals[this.parentFilter];
+      // Show only polygons whose parent property matches; show all when unset
+      this.paths.style('display', f =>
+        !parentValue || f.properties[this.parentProp] === parentValue ? null : 'none'
+      );
+      // Reset selection highlight when parent changes
+      this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+    }
+
+    _onWijkSelected(s) {
+      if (!this.paths) return;
+      if (!s?.filterValues) {
+        this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+        return;
+      }
+      const filterCol = this.data.filters[this.filterLevel]?.col;
+      if (!filterCol) return;
+      const selected = s.filterValues[filterCol];
+      this.paths
+        .attr('fill', f => f.properties[this.nameProp] === selected ? '#2C7FB8' : '#dde4eb')
+        .attr('data-selected', f => f.properties[this.nameProp] === selected ? 'true' : null);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
   // mountSunburstDashboard
   // ════════════════════════════════════════════════════════════════
   function _elExists(sel) { return sel && document.querySelector(sel); }
@@ -671,7 +783,24 @@
       new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config });
     }
 
-    return { state, data, sunburst, gauge };
+    // Build public API — expose addPolygonSelector() so polygon selector
+    // boot scripts (emitted by sunburst_polygon_selector() in R) can attach
+    // themselves to this dashboard's EventBus after DOMContentLoaded.
+    const api = {
+      state, data, sunburst, gauge,
+      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp }) {
+        if (!_elExists(containerSelector)) return;
+        const geoData = readEmbeddedJson(geoScriptId);
+        new PolygonSelector({
+          container: containerSelector, geoData, filterLevel,
+          nameProp, parentFilter, parentProp, data, state, eventBus
+        });
+      }
+    };
+    // Register globally under the dashboard id so polygon_selector boot scripts find it
+    window.__quartoWidgets = window.__quartoWidgets || {};
+    window.__quartoWidgets[config.id || configScriptId] = api;
+    return api;
   }
 
   // Export

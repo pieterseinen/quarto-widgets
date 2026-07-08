@@ -52,3 +52,19 @@ text {
 .detail-panel {
     width: 100%;
 }
+
+/* ── Polygon Selector ─────────────────────────────────────────── */
+.polygon-selector {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.polygon-selector svg path {
+  transition: fill 0.15s;
+}
+.polygon-selector svg path[data-selected="true"] {
+  stroke: #1a5276;
+  stroke-width: 1.5px;
+}

@@ -1,0 +1,171 @@
+---
+title: "quartoWidgets — Polygon Selector Example"
+subtitle: "Gemeente dropdown → polygon wijk map → sunburst chart"
+format:
+  html:
+    embed-resources: true
+    page-layout: full
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup, include=FALSE}
+library(quartoWidgets)
+library(sf)
+
+# ═══════════════════════════════════════════════════════════════════════
+# 1.  Load shapefile and prepare GeoJSON
+#     geo_prepare() reads the .shp, simplifies geometry, reprojects to
+#     WGS 84, and returns a GeoJSON string ready for embedding.
+# ═══════════════════════════════════════════════════════════════════════
+shp_path <- here::here("example_shapefile", "wijk_shapefile_hvb.shp")
+
+wijk_geo <- geo_prepare(
+  path         = shp_path,
+  name_col     = "statnaam",   # matched against the "wijk" filter column
+  extra_cols   = "gemeente",   # kept so polygons can be filtered by gemeente
+  simplify_tol = 150           # metres; reduce for finer detail
+)
+
+# ═══════════════════════════════════════════════════════════════════════
+# 2.  Synthetic indicator data
+#     Uses the *actual* wijk names from the shapefile for three
+#     demo-gemeenten so polygon clicks correlate with chart data.
+# ═══════════════════════════════════════════════════════════════════════
+set.seed(42)
+
+domains    <- c("Lichamelijke gezondheid", "Mentaal Welbevinden")
+themes     <- list(
+  "Lichamelijke gezondheid" = c("Beweging",  "Voeding"),
+  "Mentaal Welbevinden"     = c("Gevoelens", "Hinder")
+)
+indicators <- list(
+  Beweging  = c("Sport",   "Bewegen"),
+  Voeding   = c("Groente", "Gewicht"),
+  Gevoelens = c("Geluk",   "Stress"),
+  Hinder    = c("Geluid",  "Overlast")
+)
+
+# Actual wijk/gemeente combinations (column names match shapefile properties)
+wijken_tbl <- data.frame(
+  gemeente = c(rep("Boxtel", 5), rep("Dongen", 2), rep("Gilze en Rijen", 4)),
+  wijk     = c("Wijk 00 Boxtel", "Wijk 01 Lennisheuvel", "Wijk 02 Liempde",
+               "Esch", "Verspr huizen Esch",
+               "Dongen", "'s Gravenmoer",
+               "Rijen", "Gilze", "Hulten", "Molenschot"),
+  stringsAsFactors = FALSE
+)
+
+rows <- list()
+for (wi in seq_len(nrow(wijken_tbl))) {
+  for (domain in domains)
+    for (theme in themes[[domain]])
+      for (indicator in indicators[[theme]]) {
+        key <- paste(domain, theme, indicator, sep = "|")
+        rows[[length(rows) + 1L]] <- data.frame(
+          gemeente  = wijken_tbl$gemeente[wi],
+          wijk      = wijken_tbl$wijk[wi],
+          domain    = domain, theme = theme,
+          indicator = indicator, key = key,
+          waarde    = sample(10:95, 1),
+          gemeente_gemiddelde = NA_real_,
+          totaal_gemiddelde   = NA_real_,
+          stringsAsFactors    = FALSE
+        )
+      }
+}
+wijk_indicatoren <- do.call(rbind, rows)
+wijk_indicatoren$gemeente_gemiddelde <- ave(
+  wijk_indicatoren$waarde,
+  paste(wijk_indicatoren$gemeente, wijk_indicatoren$key), FUN = mean)
+wijk_indicatoren$totaal_gemiddelde <- ave(
+  wijk_indicatoren$waarde,
+  wijk_indicatoren$key, FUN = mean)
+
+# Hierarchy tree
+hierarchy <- list(
+  name = "", key = "root",
+  children = lapply(domains, function(domain)
+    list(name = domain, key = domain,
+      children = lapply(themes[[domain]], function(theme)
+        list(name = theme, key = paste(domain, theme, sep = "|"),
+          children = lapply(indicators[[theme]], function(ind)
+            list(name = ind,
+                 key  = paste(domain, theme, ind, sep = "|"),
+                 value = 1L)))))))
+
+# ═══════════════════════════════════════════════════════════════════════
+# 3.  Initialise dashboard context
+# ═══════════════════════════════════════════════════════════════════════
+ctx <- sunburst_init(
+  data      = wijk_indicatoren,
+  hierarchy = hierarchy,
+  filters   = list(
+    list(col = "gemeente", label = "Gemeente"),
+    list(col = "wijk",     label = "Wijk")
+  ),
+  id = "hvb"
+)
+ctx   # inject CDN scripts + local bundle + data JSON + boot script
+```
+
+---
+
+## Selectie
+
+Kies eerst een gemeente, klik dan op een wijk op de kaart.
+
+::: {.columns}
+
+::: {.column width="30%"}
+
+**Gemeente**
+
+```{r gemeente-selector}
+# Standard TomSelect dropdown — filters which polygons are visible on the map
+sunburst_selectors(ctx, filter = "gemeente")
+```
+
+:::
+
+::: {.column width="70%"}
+
+**Wijk (klik op de kaart)**
+
+```{r polygon-selector}
+# Polygon selector for wijken.
+#   filter        = "wijk"       — this selector controls the "wijk" filter level
+#   parent_filter = "gemeente"   — show only polygons whose gemeente property
+#                                  matches the currently selected gemeente
+#   geo_name_prop = "statnaam"   — the GeoJSON property that matches wijk column values
+#   geo_parent_prop = "gemeente" — the GeoJSON property that matches gemeente values
+sunburst_polygon_selector(
+  ctx,
+  geo             = wijk_geo,
+  filter          = "wijk",
+  parent_filter   = "gemeente",
+  geo_name_prop   = "statnaam",
+  geo_parent_prop = "gemeente"
+)
+```
+
+:::
+
+:::
+
+---
+
+## Analyse
+
+```{r sunburst-row}
+#| layout-ncol: 2
+sunburst_chart(ctx)
+sunburst_gauge(ctx)
+```
+
+```{r detail-panel}
+sunburst_header(ctx)
+sunburst_table(ctx)
+sunburst_plot(ctx)
+```
