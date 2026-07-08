@@ -1,5 +1,5 @@
-Package: sunburstr
-Title: Interactive Sunburst Health Dashboard for Quarto HTML
+Package: quartoWidgets
+Title: Quarto Widgets — Interactive Dashboard Components for Quarto HTML
 Version: 0.2.0
 Authors@R:
     person("Pieter", "Seinen", email = "p.seinen@ggdhvb.nl",

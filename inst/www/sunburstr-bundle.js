@@ -225,27 +225,27 @@
   }
 
   // ════════════════════════════════════════════════════════════════
-  // Gauge — horizontal colour bar with upward-pointing arrow
+  // Gauge — horizontal colour bar with downward-pointing arrow above
   // ════════════════════════════════════════════════════════════════
   class Gauge {
     constructor(container, categories) {
       this.cats  = categories;
       const n    = categories.length;
       const segW = 80;
+      const ptrH = 14;   // space above bar for the arrow
       const barH = 24;
-      const padT = 4;
-      const ptrH = 11;
       const lblH = 26;
       const totalW = n * segW;
-      const totalH = padT + barH + ptrH + lblH;
+      const totalH = ptrH + barH + lblH;
 
       const svg = d3.select(container).append('svg')
         .attr('viewBox', `0 0 ${totalW} ${totalH}`)
         .attr('width', '100%').style('display', 'block');
 
+      // Coloured segments — start at y=ptrH, arrow lives above them
       svg.selectAll('rect').data(categories).join('rect')
         .attr('x',      (d, i) => i * segW)
-        .attr('y',      padT)
+        .attr('y',      ptrH)
         .attr('width',  segW)
         .attr('height', barH)
         .attr('fill',   d => d.color)
@@ -253,20 +253,20 @@
 
       svg.selectAll('text').data(categories).join('text')
         .attr('x', (d, i) => (i + 0.5) * segW)
-        .attr('y', padT + barH + ptrH + 16)
+        .attr('y', ptrH + barH + 18)
         .attr('text-anchor', 'middle')
         .style('font-size', '9px').style('fill', '#444')
         .text(d => d.name);
 
-      // Upward-pointing arrow — tip touches bottom of coloured bar
+      // Downward arrow: tip at (0,0), base 12 px above — hidden until first hover
       this._ptr = svg.append('polygon')
-        .attr('points', '0,0 -5,10 5,10')
+        .attr('points', '0,0 -5,-12 5,-12')
         .attr('fill', '#111')
         .style('opacity', 0)
-        .attr('transform', `translate(${segW / 2}, ${padT + barH})`);
+        .attr('transform', `translate(${segW / 2}, ${ptrH})`);
 
       this._segW = segW;
-      this._barY = padT + barH;
+      this._ptrY = ptrH;
     }
 
     update(catName) {
@@ -274,8 +274,8 @@
       if (i < 0) return;
       this._ptr
         .style('opacity', 1)
-        .transition().duration(300)
-        .attr('transform', `translate(${this._segW * (i + 0.5)}, ${this._barY})`);
+        .transition().duration(600).ease(d3.easeCubicInOut)
+        .attr('transform', `translate(${this._segW * (i + 0.5)}, ${this._ptrY})`);
     }
   }
 

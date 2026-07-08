@@ -291,9 +291,9 @@ sunburst_dashboard <- function(ctx) {
     htmltools::singleton(htmltools::tags$link(rel = "stylesheet", href = "https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css")),
     htmltools::singleton(htmltools::tags$script(src = "https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js")),
     htmltools::htmlDependency(
-      name       = "sunburstr",
+      name       = "quartoWidgets",
       version    = "0.2.0",
-      src        = system.file("www", package = "sunburstr"),
+      src        = system.file("www", package = "quartoWidgets"),
       stylesheet = "custom.css",
       script     = "sunburstr-bundle.js",
       all_files  = FALSE
