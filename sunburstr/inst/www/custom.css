@@ -1,0 +1,54 @@
+/* Highlight active slice */
+path.active {
+    stroke: #000;
+    stroke-width: 2px;
+}
+
+/* Sunburst and gauge SVGs — sized via width="100%" attribute set in JS.
+   These rules provide a fallback max-width and block display so the SVGs
+   do not overflow their flex column. */
+.sunburst-panel svg {
+    display: block;
+    max-width: 700px;
+    width: 100%;
+}
+
+/* Text inside SVG */
+text {
+    dominant-baseline: middle;
+}
+
+/* Three-column dashboard layout */
+.dashboard-layout {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+
+    width: 100vw;
+    max-width: none;
+
+    margin-left: calc(50% - 50vw);
+    padding-left: 20px;
+    padding-right: 20px;
+
+    gap: 20px;
+    align-items: start;
+}
+
+/* Column containers */
+.left-panel,
+.sunburst-panel,
+.detail-panel {
+    width: 100%;
+}
+
+/* Center chart in middle column */
+.sunburst-panel {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+/* Table column */
+.detail-panel {
+    width: 100%;
+}

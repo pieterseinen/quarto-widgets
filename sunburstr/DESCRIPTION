@@ -1,0 +1,22 @@
+Package: sunburstr
+Title: Interactive Sunburst Health Dashboard for Quarto HTML
+Version: 0.2.0
+Authors@R:
+    person("Pieter", "Seinen", email = "p.seinen@ggdhvb.nl",
+           role = c("aut", "cre"))
+Description: Provides a modular, content-agnostic set of htmltools-based
+    functions to embed an interactive three-ring sunburst chart, category
+    gauge, DataTables detail table, Plotly comparison plot, and TomSelect
+    filter fields in standalone Quarto HTML documents. The QMD designer can
+    configure filter levels, hierarchy columns, color categories, cutoffs,
+    and labels. Components can be placed freely in the document; all
+    JavaScript and CSS are bundled and injected automatically.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    htmltools (>= 0.5.0),
+    jsonlite
+Suggests:
+    knitr
