@@ -83,8 +83,9 @@ sunburst_init <- function(
   # Use default categories if not provided
   cats <- if (is.null(categories)) .default_categories else categories
 
-  # Build config object
+  # Build config object (id included so JS can register the dashboard globally)
   config <- list(
+    id             = id,
     filters        = filters,
     hierarchyCols  = hierarchy_cols,
     scoreCol       = score_col,
@@ -260,6 +261,156 @@ sunburst_dashboard <- function(ctx) {
   )
 }
 
+
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# geo_prepare  — read any sf-supported geo file → GeoJSON for polygon selector
+# ══════════════════════════════════════════════════════════════════════════
+
+#' Prepare geographic data for use in a polygon selector
+#'
+#' Reads a shapefile, GeoJSON, GeoPackage, or any other format supported by
+#' the \code{sf} package, optionally simplifies the geometry, and returns a
+#' list ready to pass to \code{\link{sunburst_polygon_selector}}.
+#'
+#' @param path Path to the file (e.g. "wijken.shp", "wijken.geojson", "wijken.gpkg").
+#'   For a directory-based format like shapefile, pass the \code{.shp} file.
+#' @param name_col Column whose values will be matched against the dashboard
+#'   filter column (e.g. the column containing wijk names so clicks can be
+#'   correlated with rows in \code{wijk_indicatoren}).
+#' @param extra_cols Additional attribute columns to retain in the GeoJSON
+#'   (e.g. a parent-filter column like gemeente name so polygons can be
+#'   filtered when a higher-level selector changes).
+#' @param simplify_tol Simplification tolerance passed to
+#'   \code{sf::st_simplify()} (in the units of the source CRS; set \code{NULL}
+#'   to skip simplification). Smaller values retain more detail; larger values
+#'   produce smaller files. Default 100 works well for gemeente/wijk level at
+#'   national scale.
+#' @return A list with \code{$geojson} (character, UTF-8 GeoJSON) and
+#'   \code{$name_col}.
+#' @export
+geo_prepare <- function(
+    path,
+    name_col,
+    extra_cols   = NULL,
+    simplify_tol = 100
+) {
+  if (!requireNamespace("sf", quietly = TRUE))
+    stop("Package 'sf' is required for geo_prepare(). ",
+         "Install with: install.packages('sf')", call. = FALSE)
+
+  dat <- sf::st_read(path, quiet = TRUE)
+
+  # Keep only requested columns
+  keep <- unique(c(name_col, extra_cols))
+  keep <- keep[keep %in% names(dat)]
+  dat  <- dat[, keep, drop = FALSE]
+
+  # Repair any invalid geometries
+  dat <- sf::st_make_valid(dat)
+
+  # Simplify
+  if (!is.null(simplify_tol) && simplify_tol > 0) {
+    dat <- sf::st_simplify(dat, dTolerance = simplify_tol, preserveTopology = TRUE)
+  }
+
+  # Reproject to WGS 84 for web maps
+  dat <- sf::st_transform(dat, crs = 4326)
+
+  # Convert to GeoJSON string
+  tmp <- tempfile(fileext = ".geojson")
+  on.exit(unlink(tmp), add = TRUE)
+  sf::st_write(dat, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
+  geojson <- paste(readLines(tmp, warn = FALSE), collapse = "")
+
+  list(geojson = geojson, name_col = name_col)
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# sunburst_polygon_selector  — insert an interactive polygon map
+# ══════════════════════════════════════════════════════════════════════════
+
+#' Polygon selector widget
+#'
+#' Embeds an interactive SVG map whose polygons drive a dashboard filter level.
+#' Clicking a polygon is equivalent to selecting a value in the corresponding
+#' TomSelect dropdown.
+#'
+#' @param ctx A \code{sunburstr_ctx} returned by \code{\link{sunburst_init}}.
+#' @param geo A \code{geo_data} list returned by \code{\link{geo_prepare}}.
+#' @param filter The filter column name this selector controls (must match one
+#'   of the \code{col} values in the \code{filters} argument of
+#'   \code{sunburst_init()}). E.g. \code{"wijk"}.
+#' @param parent_filter Optional. The filter column one level up whose current
+#'   value is used to hide/show polygons — e.g. \code{"gemeente"} so that only
+#'   polygons for the selected gemeente are displayed. The GeoJSON must contain
+#'   a property whose values match the parent filter values in your data.
+#' @param geo_name_prop The GeoJSON feature property name whose values
+#'   correspond to the \code{filter} column in the dashboard data. Defaults to
+#'   \code{geo$name_col} (set via \code{geo_prepare()}).
+#' @param geo_parent_prop The GeoJSON feature property name whose values
+#'   correspond to the \code{parent_filter} column. Defaults to
+#'   \code{parent_filter}.
+#' @return An \code{htmltools::tagList}.
+#' @export
+sunburst_polygon_selector <- function(
+    ctx,
+    geo,
+    filter,
+    parent_filter   = NULL,
+    geo_name_prop   = NULL,
+    geo_parent_prop = NULL
+) {
+  .check_ctx(ctx)
+  id      <- attr(ctx, "sunburstr_id")
+  config  <- attr(ctx, "sunburstr_config")
+
+  # Resolve filter index
+  filter_cols <- vapply(config$filters, `[[`, "", "col")
+  filter_idx  <- match(filter, filter_cols) - 1L
+  if (is.na(filter_idx))
+    stop("Filter '", filter, "' not found in sunburst_init() filters config.", call. = FALSE)
+
+  geo_name_prop   <- geo_name_prop   %||% geo$name_col
+  geo_parent_prop <- geo_parent_prop %||% parent_filter
+
+  geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
+  div_id        <- paste0(id, "-polygon-selector-", filter_idx)
+
+  # Small boot script — runs after the main DOMContentLoaded (same event, later handler)
+  # Finds the already-registered dashboard and calls addPolygonSelector().
+  boot <- sprintf(
+    paste0(
+      'document.addEventListener("DOMContentLoaded", function() {',
+      '  var db = window.__quartoWidgets && window.__quartoWidgets["%s"];',
+      '  if (db) db.addPolygonSelector({',
+      '    containerSelector: "#%s",',
+      '    geoScriptId:       "%s",',
+      '    filterLevel:       %d,',
+      '    nameProp:          "%s",',
+      '    parentFilter:      %s,',
+      '    parentProp:        %s',
+      '  });',
+      '});',
+    ),
+    id, div_id, geo_script_id, filter_idx,
+    geo_name_prop,
+    if (is.null(parent_filter))   "null" else paste0('"', parent_filter,   '"'),
+    if (is.null(geo_parent_prop)) "null" else paste0('"', geo_parent_prop, '"')
+  )
+
+  htmltools::tagList(
+    htmltools::tags$script(
+      id   = geo_script_id,
+      type = "application/json",
+      htmltools::HTML(geo$geojson)
+    ),
+    htmltools::div(id = div_id, class = "polygon-selector"),
+    htmltools::tags$script(htmltools::HTML(boot))
+  )
+}
 
 # ══════════════════════════════════════════════════════════════════════════
 # Internal helpers
