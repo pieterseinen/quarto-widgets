@@ -107,7 +107,13 @@ ctx <- sunburst_init(
   ),
   id = "hvb"
 )
-ctx   # inject CDN scripts + local bundle + data JSON + boot script
+# (ctx output suppressed here — emitted in the chunk below)
+```
+
+```{r ctx-output}
+# Output ctx here (outside include=FALSE chunk) so the JSON data blocks
+# and mountSunburstDashboard() boot call are actually written to HTML.
+ctx
 ```
 
 ---
