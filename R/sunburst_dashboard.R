@@ -381,6 +381,11 @@ sunburst_polygon_selector <- function(
 
   # Small boot script — runs after the main DOMContentLoaded (same event, later handler)
   # Finds the already-registered dashboard and calls addPolygonSelector().
+  # Pre-compute optional JS values — avoids conditional expressions inside sprintf()
+  # and eliminates the trailing-comma-in-paste0 parse error.
+  parent_filter_js   <- if (is.null(parent_filter))   "null" else sprintf('\"%s\"', parent_filter)
+  geo_parent_prop_js <- if (is.null(geo_parent_prop)) "null" else sprintf('\"%s\"', geo_parent_prop)
+
   boot <- sprintf(
     paste0(
       'document.addEventListener("DOMContentLoaded", function() {',
@@ -393,7 +398,7 @@ sunburst_polygon_selector <- function(
       '    parentFilter:      %s,',
       '    parentProp:        %s',
       '  });',
-      '});',
+      '});'
     ),
     id, div_id, geo_script_id, filter_idx,
     geo_name_prop,

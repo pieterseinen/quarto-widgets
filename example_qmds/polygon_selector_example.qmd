@@ -19,7 +19,7 @@ library(sf)
 #     geo_prepare() reads the .shp, simplifies geometry, reprojects to
 #     WGS 84, and returns a GeoJSON string ready for embedding.
 # ═══════════════════════════════════════════════════════════════════════
-shp_path <- here::here("example_shapefile", "wijk_shapefile_hvb.shp")
+shp_path <- "/Workspace/Users/p.seinen@ggdhvb.nl/quarto-widgets/example_shapefile/wijk_shapefile_hvb.shp"
 
 wijk_geo <- geo_prepare(
   path         = shp_path,
