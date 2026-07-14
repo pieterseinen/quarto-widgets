@@ -913,11 +913,11 @@
   }
 
   // ════════════════════════════════════════════════════════════════
-  // mountSunburstDashboard
+  // mountWidgets
   // ════════════════════════════════════════════════════════════════
   function _elExists(sel) { return sel && document.querySelector(sel); }
 
-  function mountSunburstDashboard({
+  function mountWidgets({
     configScriptId     = 'config-data',
     hierarchyScriptId  = 'hierarchy-data',
     wijkScriptId       = 'wijk-data',
@@ -958,8 +958,8 @@
     }
 
     // Build public API — expose addPolygonSelector() so polygon selector
-    // boot scripts (emitted by sunburst_polygon_selector() in R) can attach
-    // themselves to this dashboard's EventBus after DOMContentLoaded.
+    // boot scripts (emitted by polygon_selector() in R) can attach
+    // themselves to this widget set's EventBus after DOMContentLoaded.
     const api = {
       state, data, sunburst, gauge,
       addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, zoomToVisible, backLabel }) {
@@ -972,12 +972,13 @@
         });
       }
     };
-    // Register globally under the dashboard id so polygon_selector boot scripts find it
+    // Register globally under the widget id so polygon_selector boot scripts find it
     window.__quartoWidgets = window.__quartoWidgets || {};
     window.__quartoWidgets[config.id || configScriptId] = api;
     return api;
   }
 
   // Export
-  window.SunburstDashboard = { mountSunburstDashboard };
+  window.QuartoWidgets = { mountWidgets, mountSunburstDashboard: mountWidgets };
+  window.SunburstDashboard = { mountSunburstDashboard: mountWidgets };
 })();
