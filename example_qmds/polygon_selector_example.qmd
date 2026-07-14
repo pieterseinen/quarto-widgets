@@ -10,7 +10,7 @@ execute:
   warning: false
 ---
 
-```{r setup, include=FALSE}
+```{r setup, message=FALSE}
 library(quartoWidgets)
 library(sf)
 library(here)
@@ -87,10 +87,10 @@ wijk_indicatoren$totaal_gemiddelde <- ave(
 
 # ═══════════════════════════════════════════════════════════════════════
 # 3.  Initialise interactive widget data
-#     No separate hierarchy object or key column needed — both are
-#     derived automatically from the data and hierarchy_cols.
+#     Parenthesised assignment: assigns wd AND injects HTML scripts
+#     into the document in one expression — no second chunk needed.
 # ═══════════════════════════════════════════════════════════════════════
-wd <- widget_data(
+(wd <- widget_data(
   data            = wijk_indicatoren,
   hierarchy_cols  = c(domain    = "Domein",
                       theme     = "Thema",
@@ -101,14 +101,7 @@ wd <- widget_data(
   comparison_cols = c(gemeente_gemiddelde = "Gemeente",
                       totaal_gemiddelde   = "Nederland"),
   id = "hvb"
-)
-# (wd output suppressed here — emitted in the chunk below)
-```
-
-```{r widget-data-output}
-# Print wd here (outside include=FALSE) so JSON data blocks and the
-# widget boot call are written to HTML.
-wd
+))
 ```
 
 ---
