@@ -1,6 +1,6 @@
 Package: quartoWidgets
 Title: Quarto Widgets — Interactive Dashboard Components for Quarto HTML
-Version: 0.3.0
+Version: 0.4.0
 Authors@R:
     person("Pieter", "Seinen", email = "p.seinen@ggdhvb.nl",
            role = c("aut", "cre"))
