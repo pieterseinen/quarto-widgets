@@ -1,21 +1,20 @@
-# sunburst_dashboard.R — public API for the sunburstr package
+# sunburst_dashboard.R — public API for the quartoWidgets package
 #
 # Workflow
 # --------
-# 1.  Call sunburst_init() once per dashboard instance. Pass your data,
+# 1.  Call widget_data() once per interactive widget set. Pass your data,
 #     hierarchy, filter configuration, and optional category/color settings.
-#     The returned `sunburstr_ctx` object, when auto-printed in a Quarto
+#     The returned `quarto_widget_data` object, when auto-printed in a Quarto
 #     R chunk, embeds all JSON data, dependencies, and the boot script.
 #
-# 2.  Call individual component functions (sunburst_chart, sunburst_gauge,
-#     sunburst_selectors, sunburst_header, sunburst_table, sunburst_plot)
+# 2.  Call individual component functions (sunburst_chart, widget_gauge,
+#     widget_selectors, widget_header, widget_table, widget_plot)
 #     in whichever chunks / locations you like.
 #
-# 3.  Use sunburst_dashboard() as a shortcut that assembles all six
-#     components in the default three-column grid layout.
+# 3.  Use widget_layout() as a shortcut that assembles the default layout.
 #
-# Multiple independent dashboards on one page are supported: just call
-# sunburst_init() with a different `id` for each one.
+# Multiple independent widget sets on one page are supported: just call
+# widget_data() with a different `id` for each one.
 
 # ══════════════════════════════════════════════════════════════════════════
 # Default categories (Dutch public-health style)
@@ -30,12 +29,12 @@
 )
 
 # ══════════════════════════════════════════════════════════════════════════
-# sunburst_init
+# widget_data
 # ══════════════════════════════════════════════════════════════════════════
 
-#' Initialise a sunburst dashboard context
+#' Initialise interactive widget data
 #'
-#' Call this **once** per dashboard instance. The returned object embeds the
+#' Call this **once** per interactive widget set. The returned object embeds the
 #' config, wijk JSON data, hierarchy JSON, all JavaScript and CSS dependencies,
 #' and a `DOMContentLoaded` boot script into the document when auto-printed.
 #'
@@ -54,12 +53,12 @@
 #'   If `NULL`, uses the default Dutch public-health categories.
 #' @param default_selection A named list specifying default filter values to
 #'   pre-select on load (e.g., `list(gemeente = "Amsterdam")`).
-#' @param id HTML id prefix for all elements belonging to this dashboard.
+#' @param id HTML id prefix for all elements belonging to this widget set.
 #'
-#' @return A `sunburstr_ctx` object. Auto-printing it in a Quarto chunk injects
-#'   all necessary HTML/JS.
+#' @return A `quarto_widget_data` object. Auto-printing it in a Quarto chunk
+#'   injects all necessary HTML/JS.
 #' @export
-sunburst_init <- function(
+widget_data <- function(
     data,
     hierarchy,
     filters           = list(
@@ -78,7 +77,7 @@ sunburst_init <- function(
     ),
     categories        = NULL,
     default_selection = NULL,
-    id                = "sunburstr-1"
+    id                = "widget-1"
 ) {
   # Use default categories if not provided
   cats <- if (is.null(categories)) .default_categories else categories
@@ -111,7 +110,7 @@ sunburst_init <- function(
   boot_script <- sprintf(
     paste0(
       'document.addEventListener("DOMContentLoaded", function() {',
-      '  window.SunburstDashboard.mountSunburstDashboard({',
+      '  window.QuartoWidgets.mountWidgets({',
       '    configScriptId:    "%s-config",',
       '    hierarchyScriptId: "%s-hierarchy-data",',
       '    wijkScriptId:      "%s-wijk-data",',
@@ -128,7 +127,7 @@ sunburst_init <- function(
   )
 
   html <- htmltools::tagList(
-    .sunburst_dependencies(),
+    .quarto_widgets_dependencies(),
     htmltools::tags$script(id = paste0(id, "-config"),         type = "application/json", htmltools::HTML(config_json)),
     htmltools::tags$script(id = paste0(id, "-hierarchy-data"), type = "application/json", htmltools::HTML(hierarchy_json)),
     htmltools::tags$script(id = paste0(id, "-wijk-data"),      type = "application/json", htmltools::HTML(wijk_json)),
@@ -137,11 +136,15 @@ sunburst_init <- function(
 
   structure(
     html,
-    class          = c("sunburstr_ctx", class(html)),
-    sunburstr_id   = id,
+    class = c("quarto_widget_data", "sunburstr_ctx", class(html)),
+    widget_data_id = id,
+    widget_data_config = config,
+    sunburstr_id = id,
     sunburstr_config = config
   )
 }
+
+sunburst_init <- widget_data
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -150,15 +153,15 @@ sunburst_init <- function(
 
 #' Filter dropdowns (0 / 1 / N levels based on config)
 #'
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @param filter Optional: return only the select for a specific filter column
 #'   (by column name). If `NULL`, returns all filter selects.
 #' @return An `htmltools::tagList`.
 #' @export
-sunburst_selectors <- function(ctx, filter = NULL) {
-  .check_ctx(ctx)
-  id      <- attr(ctx, "sunburstr_id")
-  config  <- attr(ctx, "sunburstr_config")
+widget_selectors <- function(widget_data, filter = NULL) {
+  .check_widget_data(widget_data)
+  id      <- .widget_id(widget_data)
+  config  <- .widget_config(widget_data)
   filters <- config$filters
 
   if (is.null(filters) || length(filters) == 0) {
@@ -181,63 +184,73 @@ sunburst_selectors <- function(ctx, filter = NULL) {
   )
 }
 
+sunburst_selectors <- widget_selectors
+
 #' Sunburst ring chart container
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_chart <- function(ctx) {
-  .check_ctx(ctx)
-  htmltools::div(id = paste0(attr(ctx, "sunburstr_id"), "-sunburst"))
+sunburst_chart <- function(widget_data) {
+  .check_widget_data(widget_data)
+  htmltools::div(id = paste0(.widget_id(widget_data), "-sunburst"))
 }
 
 #' Category colour gauge container
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_gauge <- function(ctx) {
-  .check_ctx(ctx)
-  htmltools::div(id = paste0(attr(ctx, "sunburstr_id"), "-gauge"))
+widget_gauge <- function(widget_data) {
+  .check_widget_data(widget_data)
+  htmltools::div(id = paste0(.widget_id(widget_data), "-gauge"))
 }
+
+sunburst_gauge <- widget_gauge
 
 #' Detail header
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_header <- function(ctx) {
-  .check_ctx(ctx)
-  htmltools::div(id = paste0(attr(ctx, "sunburstr_id"), "-detail-header"))
+widget_header <- function(widget_data) {
+  .check_widget_data(widget_data)
+  htmltools::div(id = paste0(.widget_id(widget_data), "-detail-header"))
 }
+
+sunburst_header <- widget_header
 
 #' Detail indicator table
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_table <- function(ctx) {
-  .check_ctx(ctx)
-  htmltools::div(id = paste0(attr(ctx, "sunburstr_id"), "-table-output"))
+widget_table <- function(widget_data) {
+  .check_widget_data(widget_data)
+  htmltools::div(id = paste0(.widget_id(widget_data), "-table-output"))
 }
+
+sunburst_table <- widget_table
 
 #' Plotly comparison plot
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_plot <- function(ctx) {
-  .check_ctx(ctx)
-  htmltools::div(id = paste0(attr(ctx, "sunburstr_id"), "-plot-output"))
+widget_plot <- function(widget_data) {
+  .check_widget_data(widget_data)
+  htmltools::div(id = paste0(.widget_id(widget_data), "-plot-output"))
 }
 
+sunburst_plot <- widget_plot
 
-#' Full three-column sunburst dashboard layout
+
+#' Default widget layout
 #'
-#' Convenience function that assembles all six components in the default
+#' Convenience function that assembles the coordinated widgets in the default
 #' three-column CSS grid layout.
 #'
-#' @param ctx A `sunburstr_ctx` returned by `sunburst_init()`.
+#' @param widget_data A `quarto_widget_data` returned by `widget_data()`.
 #' @return An `htmltools::tag`.
 #' @export
-sunburst_dashboard <- function(ctx) {
-  .check_ctx(ctx)
-  config  <- attr(ctx, "sunburstr_config")
+widget_layout <- function(widget_data) {
+  .check_widget_data(widget_data)
+  config  <- .widget_config(widget_data)
   filters <- config$filters
 
   htmltools::div(
@@ -245,21 +258,23 @@ sunburst_dashboard <- function(ctx) {
     htmltools::div(
       class = "left-panel",
       if (length(filters) > 0) htmltools::tags$h3(filters[[1]]$label %||% "Selectie"),
-      sunburst_selectors(ctx)
+      widget_selectors(widget_data)
     ),
     htmltools::div(
       class = "sunburst-panel",
-      sunburst_chart(ctx),
-      sunburst_gauge(ctx)
+      sunburst_chart(widget_data),
+      widget_gauge(widget_data)
     ),
     htmltools::div(
       class = "detail-panel",
-      sunburst_header(ctx),
-      sunburst_table(ctx),
-      sunburst_plot(ctx)
+      widget_header(widget_data),
+      widget_table(widget_data),
+      widget_plot(widget_data)
     )
   )
 }
+
+sunburst_dashboard <- widget_layout
 
 
 
@@ -272,7 +287,7 @@ sunburst_dashboard <- function(ctx) {
 #'
 #' Reads a shapefile, GeoJSON, GeoPackage, or any other format supported by
 #' the \code{sf} package, optionally simplifies the geometry, and returns a
-#' list ready to pass to \code{\link{sunburst_polygon_selector}}.
+#' list ready to pass to \code{\link{polygon_selector}}.
 #'
 #' @param path Path to the file (e.g. "wijken.shp", "wijken.geojson", "wijken.gpkg").
 #'   For a directory-based format like shapefile, pass the \code{.shp} file.
@@ -329,20 +344,20 @@ geo_prepare <- function(
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# sunburst_polygon_selector  — insert an interactive polygon map
+# polygon_selector  — insert an interactive polygon map
 # ══════════════════════════════════════════════════════════════════════════
 
 #' Polygon selector widget
 #'
-#' Embeds an interactive SVG map whose polygons drive a dashboard filter level.
+#' Embeds an interactive SVG map whose polygons drive a widget filter level.
 #' Clicking a polygon is equivalent to selecting a value in the corresponding
 #' TomSelect dropdown.
 #'
-#' @param ctx A \code{sunburstr_ctx} returned by \code{\link{sunburst_init}}.
+#' @param widget_data A \code{quarto_widget_data} returned by \code{\link{widget_data}}.
 #' @param geo A \code{geo_data} list returned by \code{\link{geo_prepare}}.
 #' @param filter The filter column name this selector controls (must match one
 #'   of the \code{col} values in the \code{filters} argument of
-#'   \code{sunburst_init()}). E.g. \code{"wijk"}.
+#'   \code{widget_data()}). E.g. \code{"wijk"}.
 #' @param parent_filter Optional. The filter column one level up whose current
 #'   value is used to hide/show polygons — e.g. \code{"gemeente"} so that only
 #'   polygons for the selected gemeente are displayed. The GeoJSON must contain
@@ -363,8 +378,8 @@ geo_prepare <- function(
 #'   the parent layer.
 #' @return An \code{htmltools::tagList}.
 #' @export
-sunburst_polygon_selector <- function(
-    ctx,
+polygon_selector <- function(
+    widget_data,
     geo,
     filter,
     parent_filter    = NULL,
@@ -375,15 +390,15 @@ sunburst_polygon_selector <- function(
     zoom_to_visible  = TRUE,
     back_label       = "Terug naar hoger niveau"
 ) {
-  .check_ctx(ctx)
-  id      <- attr(ctx, "sunburstr_id")
-  config  <- attr(ctx, "sunburstr_config")
+  .check_widget_data(widget_data)
+  id      <- .widget_id(widget_data)
+  config  <- .widget_config(widget_data)
 
   # Resolve filter index
   filter_cols <- vapply(config$filters, `[[`, "", "col")
   filter_idx  <- match(filter, filter_cols) - 1L
   if (is.na(filter_idx)) {
-    stop("Filter '", filter, "' not found in sunburst_init() filters config.", call. = FALSE)
+    stop("Filter '", filter, "' not found in widget_data() filters config.", call. = FALSE)
   }
 
   if (isTRUE(layered) && is.null(parent_filter)) {
@@ -439,26 +454,38 @@ sunburst_polygon_selector <- function(
   )
 }
 
+sunburst_polygon_selector <- polygon_selector
+
 # ══════════════════════════════════════════════════════════════════════════
 # Internal helpers
 # ══════════════════════════════════════════════════════════════════════════
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-.check_ctx <- function(ctx) {
-  if (!inherits(ctx, "sunburstr_ctx")) {
+.widget_id <- function(widget_data) {
+  attr(widget_data, "widget_data_id") %||% attr(widget_data, "sunburstr_id")
+}
+
+.widget_config <- function(widget_data) {
+  attr(widget_data, "widget_data_config") %||% attr(widget_data, "sunburstr_config")
+}
+
+.check_widget_data <- function(widget_data) {
+  if (!inherits(widget_data, c("quarto_widget_data", "sunburstr_ctx"))) {
     stop(
-      "Expected a sunburstr_ctx object. ",
-      "Did you forget to call sunburst_init() first?",
+      "Expected a quarto_widget_data object. ",
+      "Did you forget to call widget_data() first?",
       call. = FALSE
     )
   }
 }
 
-.sunburst_dependencies <- function() {
+.check_ctx <- .check_widget_data
+
+.quarto_widgets_dependencies <- function() {
   # singleton() deduplicates within one renderTags() call.
-  # For multi-dashboard documents, print all contexts together in one chunk:
-  #   htmltools::tagList(ctx_a, ctx_b, ctx_c)
+  # For multi-widget documents, print all widget_data objects together in one chunk:
+  #   htmltools::tagList(widget_data_a, widget_data_b, widget_data_c)
   # This fires a single renderTags() pass and deduplicates all CDN scripts.
   htmltools::tagList(
     htmltools::singleton(htmltools::tags$script(src = "https://d3js.org/d3.v7.min.js")),
@@ -470,7 +497,7 @@ sunburst_polygon_selector <- function(
     htmltools::singleton(htmltools::tags$script(src = "https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js")),
     htmltools::htmlDependency(
       name       = "quartoWidgets",
-      version    = "0.2.0",
+      version    = "0.3.0",
       src        = system.file("www", package = "quartoWidgets"),
       stylesheet = "custom.css",
       script     = "sunburstr-bundle.js",

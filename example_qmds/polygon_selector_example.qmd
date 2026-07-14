@@ -99,9 +99,9 @@ hierarchy <- list(
                  value = 1L)))))))
 
 # ═══════════════════════════════════════════════════════════════════════
-# 3.  Initialise dashboard context
+# 3.  Initialise interactive widget data
 # ═══════════════════════════════════════════════════════════════════════
-ctx <- sunburst_init(
+widget_data <- widget_data(
   data      = wijk_indicatoren,
   hierarchy = hierarchy,
   filters   = list(
@@ -110,13 +110,13 @@ ctx <- sunburst_init(
   ),
   id = "hvb"
 )
-# (ctx output suppressed here — emitted in the chunk below)
+# (widget_data output suppressed here — emitted in the chunk below)
 ```
 
-```{r ctx-output}
-# Output ctx here (outside include=FALSE chunk) so the JSON data blocks
-# and mountSunburstDashboard() boot call are actually written to HTML.
-ctx
+```{r widget-data-output}
+# Output widget_data here (outside include=FALSE chunk) so the JSON data blocks
+# and widget boot call are actually written to HTML.
+widget_data
 ```
 
 ---
@@ -133,7 +133,7 @@ Kies eerst een gemeente. De polygon selector verschijnt daarna automatisch, zoom
 
 ```{r gemeente-selector}
 # Standard TomSelect dropdown — filters which polygons are visible on the map
-sunburst_selectors(ctx, filter = "gemeente")
+widget_selectors(widget_data, filter = "gemeente")
 ```
 
 :::
@@ -149,8 +149,8 @@ sunburst_selectors(ctx, filter = "gemeente")
 #                                  matches the currently selected gemeente
 #   geo_name_prop = "statnaam"   — the GeoJSON property that matches wijk column values
 #   geo_parent_prop = "gemeente" — the GeoJSON property that matches gemeente values
-sunburst_polygon_selector(
-  ctx,
+polygon_selector(
+  widget_data,
   geo              = wijk_geo,
   filter           = "wijk",
   parent_filter    = "gemeente",
@@ -173,12 +173,12 @@ sunburst_polygon_selector(
 
 ```{r sunburst-row}
 #| layout-ncol: 2
-sunburst_chart(ctx)
-sunburst_gauge(ctx)
+sunburst_chart(widget_data)
+widget_gauge(widget_data)
 ```
 
 ```{r detail-panel}
-sunburst_header(ctx)
-sunburst_table(ctx)
-sunburst_plot(ctx)
+widget_header(widget_data)
+widget_table(widget_data)
+widget_plot(widget_data)
 ```
