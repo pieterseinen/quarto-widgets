@@ -84,13 +84,13 @@ wijk_indicatoren$gemeente_gemiddelde <- ave(
   paste(wijk_indicatoren$gemeente, ind_key), FUN = mean)
 wijk_indicatoren$totaal_gemiddelde <- ave(
   wijk_indicatoren$waarde, ind_key, FUN = mean)
+```
 
+```{r widget-data}
 # ═══════════════════════════════════════════════════════════════════════
 # 3.  Initialise interactive widget data
-#     Parenthesised assignment: assigns wd AND injects HTML scripts
-#     into the document in one expression — no second chunk needed.
 # ═══════════════════════════════════════════════════════════════════════
-(wd <- widget_data(
+wd <- widget_data(
   data            = wijk_indicatoren,
   hierarchy_cols  = c(domain    = "Domein",
                       theme     = "Thema",
@@ -101,7 +101,8 @@ wijk_indicatoren$totaal_gemiddelde <- ave(
   comparison_cols = c(gemeente_gemiddelde = "Gemeente",
                       totaal_gemiddelde   = "Nederland"),
   id = "hvb"
-))
+)
+wd
 ```
 
 ---
