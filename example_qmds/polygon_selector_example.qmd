@@ -102,7 +102,7 @@ hierarchy <- list(
 # ═══════════════════════════════════════════════════════════════════════
 # 3.  Initialise interactive widget data
 # ═══════════════════════════════════════════════════════════════════════
-widget_data <- widget_data(
+wd <- widget_data(
   data      = wijk_indicatoren,
   hierarchy = hierarchy,
   filters   = list(
@@ -111,13 +111,13 @@ widget_data <- widget_data(
   ),
   id = "hvb"
 )
-# (widget_data output suppressed here — emitted in the chunk below)
+# (wd output suppressed here — emitted in the chunk below)
 ```
 
 ```{r widget-data-output}
-# Output widget_data here (outside include=FALSE chunk) so the JSON data blocks
+# Output wd here (outside include=FALSE chunk) so the JSON data blocks
 # and widget boot call are actually written to HTML.
-widget_data
+wd
 ```
 
 ---
@@ -134,7 +134,7 @@ Kies eerst een gemeente. De polygon selector verschijnt daarna automatisch, zoom
 
 ```{r gemeente-selector}
 # Standard TomSelect dropdown — filters which polygons are visible on the map
-widget_selectors(widget_data, filter = "gemeente")
+widget_selectors(wd, filter = "gemeente")
 ```
 
 :::
@@ -151,7 +151,7 @@ widget_selectors(widget_data, filter = "gemeente")
 #   geo_name_prop = "statnaam"   — the GeoJSON property that matches wijk column values
 #   geo_parent_prop = "gemeente" — the GeoJSON property that matches gemeente values
 polygon_selector(
-  widget_data,
+  wd,
   geo              = wijk_geo,
   filter           = "wijk",
   parent_filter    = "gemeente",
@@ -174,12 +174,12 @@ polygon_selector(
 
 ```{r sunburst-row}
 #| layout-ncol: 2
-sunburst_chart(widget_data)
-widget_gauge(widget_data)
+sunburst_chart(wd)
+widget_gauge(wd)
 ```
 
 ```{r detail-panel}
-widget_header(widget_data)
-widget_table(widget_data)
-widget_plot(widget_data)
+widget_header(wd)
+widget_table(wd)
+widget_plot(wd)
 ```
