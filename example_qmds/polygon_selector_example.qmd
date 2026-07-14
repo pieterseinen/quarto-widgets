@@ -15,7 +15,8 @@ library(quartoWidgets)
 library(sf)
 library(here)
 
-
+#lokaal installeren uit repo voor testen
+#install.packages(getwd(), type = "source", repos =  NULL)
 
 # ═══════════════════════════════════════════════════════════════════════
 # 1.  Load shapefile and prepare GeoJSON
