@@ -636,7 +636,8 @@
     constructor({ container, geoData, filterLevel, nameProp,
                   parentFilter, parentProp, showWhenFilter,
                   layered = false, zoomToVisible = true, backLabel = 'Terug naar hoger niveau',
-                  data, state, eventBus }) {
+                  data, state, eventBus,
+                  colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true }) {
       this.el             = document.querySelector(container);
       this.geo            = geoData;
       this.filterLevel    = filterLevel;
@@ -653,6 +654,18 @@
       this.currentLevel   = this.layered ? 'parent' : 'child';
       this.currentParentValue = null;
       this.selectedParentValue = null;
+
+      // Configurable colors and stroke
+      this.colors = {
+        fill:     colors.fill     || '#dde4eb',
+        stroke:   colors.stroke   || '#ffffff',
+        hover:    colors.hover    || '#a0b4c8',
+        selected: colors.selected || '#2C7FB8',
+        empty:    colors.empty    || '#f5f5f5'
+      };
+      this.selectedStrokeWidth = selectedStrokeWidth;
+      this.showEmptyGeometries = showEmptyGeometries;
+
       this._render();
       this.eb.on('filter-level-changed', vals => this._onFilterChanged(vals), false);
       this.eb.on('wijk-selected', s => this._onWijkSelected(s), false);
@@ -724,9 +737,28 @@
       });
     }
 
+    // Determine which polygon names have data for the current view
+    _getDataValues(parentValue) {
+      const filterCol = this.data.filters[this.filterLevel]?.col;
+      if (!filterCol) return new Set();
+      const rows = this.data.rows.filter(r => {
+        if (!parentValue || !this.parentFilter) return true;
+        return r[this.parentFilter] === parentValue;
+      });
+      return new Set(rows.map(r => r[filterCol]).filter(Boolean));
+    }
+
     _drawCurrentLayer() {
       const self = this;
-      const features = this._getCurrentFeatures();
+      let features = this._getCurrentFeatures();
+
+      // Determine which polygon names have matching data
+      const dataValues = this._getDataValues(this.currentParentValue);
+
+      // Filter out empty geometries if configured to hide them
+      if (!this.showEmptyGeometries && this.currentLevel === 'child') {
+        features = features.filter(f => dataValues.has(f.properties[self.nameProp]));
+      }
 
       this.mapLayer.selectAll('path').remove();
 
@@ -734,26 +766,48 @@
         .data(features, f => `${self.currentLevel}:${f.properties[self.nameProp]}`)
         .join('path')
         .attr('d', this.pathFn)
-        .attr('fill', '#dde4eb')
-        .attr('stroke', '#fff')
+        .attr('fill', f => {
+          if (self.currentLevel === 'child' && !dataValues.has(f.properties[self.nameProp])) {
+            return self.colors.empty;
+          }
+          return self.colors.fill;
+        })
+        .attr('stroke', this.colors.stroke)
         .attr('stroke-width', 0.8)
-        .style('cursor', 'pointer')
+        .attr('data-has-data', f => {
+          if (self.currentLevel !== 'child') return 'true';
+          return dataValues.has(f.properties[self.nameProp]) ? 'true' : 'false';
+        })
+        .style('cursor', f => {
+          if (self.currentLevel === 'child' && !dataValues.has(f.properties[self.nameProp])) {
+            return 'default';
+          }
+          return 'pointer';
+        })
         .on('mouseenter', function(ev, f) {
-          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', '#a0b4c8');
+          const hasData = d3.select(this).attr('data-has-data') !== 'false';
+          if (!hasData) return;
+          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', self.colors.hover);
           const tip = _getTooltip();
           tip.innerHTML = '<strong>' + f.properties[self.nameProp] + '</strong>';
           tip.style.opacity = '1';
         })
-        .on('mousemove', ev => {
+        .on('mousemove', function(ev) {
+          const hasData = d3.select(this).attr('data-has-data') !== 'false';
+          if (!hasData) return;
           const tip = _getTooltip();
           tip.style.left = (ev.clientX + 14) + 'px';
           tip.style.top  = (ev.clientY - 36) + 'px';
         })
         .on('mouseleave', function() {
-          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', '#dde4eb');
+          const hasData = d3.select(this).attr('data-has-data') !== 'false';
+          if (!hasData) return;
+          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', self.colors.fill);
           _getTooltip().style.opacity = '0';
         })
         .on('click', function(ev, f) {
+          const hasData = d3.select(this).attr('data-has-data') !== 'false';
+          if (!hasData) return;
           ev.stopPropagation();
           self._handleClick(f);
         });
@@ -886,7 +940,8 @@
         this.paths.style('display', f =>
           !parentValue || !this.parentProp || f.properties[this.parentProp] === parentValue ? null : 'none'
         );
-        this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+        this.paths.attr('fill', this.colors.fill).attr('data-selected', null)
+          .attr('stroke-width', 0.8);
         this._fitVisibleFeatures();
       }
       this._updateMessage();
@@ -900,15 +955,22 @@
     _onWijkSelected(s) {
       if (!this.paths) return;
       if (!s?.filterValues) {
-        this.paths.attr('fill', '#dde4eb').attr('data-selected', null);
+        this.paths.attr('fill', this.colors.fill).attr('data-selected', null)
+          .attr('stroke-width', 0.8).attr('stroke', this.colors.stroke);
         return;
       }
       const filterCol = this.data.filters[this.filterLevel]?.col;
       if (!filterCol) return;
       const selected = s.filterValues[filterCol];
+      const self = this;
       this.paths
-        .attr('fill', f => f.properties[this.nameProp] === selected ? '#2C7FB8' : '#dde4eb')
-        .attr('data-selected', f => f.properties[this.nameProp] === selected ? 'true' : null);
+        .attr('fill', f => f.properties[this.nameProp] === selected ? this.colors.selected : this.colors.fill)
+        .attr('data-selected', f => f.properties[this.nameProp] === selected ? 'true' : null)
+        .attr('stroke-width', f => f.properties[this.nameProp] === selected ? this.selectedStrokeWidth : 0.8)
+        .attr('stroke', f => f.properties[this.nameProp] === selected ? this.colors.stroke : this.colors.stroke);
+
+      // Raise selected polygon so its outline renders on top of neighbors
+      this.paths.filter(f => f.properties[self.nameProp] === selected).raise();
     }
   }
 
@@ -962,13 +1024,14 @@
     // themselves to this widget set's EventBus after DOMContentLoaded.
     const api = {
       state, data, sunburst, gauge,
-      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, zoomToVisible, backLabel }) {
+      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
         new PolygonSelector({
           container: containerSelector, geoData, filterLevel,
           nameProp, parentFilter, parentProp, showWhenFilter,
-          layered, zoomToVisible, backLabel, data, state, eventBus
+          layered, zoomToVisible, backLabel, data, state, eventBus,
+          colors: colors || {}, selectedStrokeWidth, showEmptyGeometries
         });
       }
     };

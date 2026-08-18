@@ -529,6 +529,17 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, simplify_tol = 100) {
 #' @param zoom_to_visible Logical. Fit the map to visible polygons. Default \code{TRUE}.
 #' @param back_label Back-navigation button label in layered mode.
 #'   Default \code{"Terug naar hoger niveau"}.
+#' @param selected_stroke_width Numeric. Stroke width of the selected polygon
+#'   outline. The selected polygon is raised on top of its neighbors so its
+#'   border is always fully visible. Default \code{2.5}.
+#' @param colors Optional named list of hex color strings to customise the
+#'   polygon map appearance. Supported keys: \code{fill} (default polygon fill),
+#'   \code{stroke} (border color), \code{hover} (fill on mouse hover),
+#'   \code{selected} (fill when selected), \code{empty} (fill for polygons
+#'   without matching data). Any key not supplied uses the built-in default.
+#' @param show_empty_geometries Logical. When \code{TRUE} (default), polygons
+#'   without corresponding data rows are shown but greyed out and
+#'   non-selectable. When \code{FALSE}, such polygons are hidden entirely.
 #'
 #' @return An \code{htmltools::tagList} with the embedded GeoJSON script,
 #'   map container \code{<div>}, and boot script.
@@ -556,7 +567,10 @@ polygon_selector <- function(
     show_when_filter = NULL,
     layered          = FALSE,
     zoom_to_visible  = TRUE,
-    back_label       = "Terug naar hoger niveau"
+    back_label       = "Terug naar hoger niveau",
+    selected_stroke_width = 2.5,
+    colors           = NULL,
+    show_empty_geometries = TRUE
 ) {
   .check_widget_data(widget_data)
   id     <- .widget_id(widget_data)
@@ -578,6 +592,16 @@ polygon_selector <- function(
     else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
   }
 
+  # Build colors JS object (only emit non-NULL overrides)
+  colors_js <- if (!is.null(colors) && is.list(colors)) {
+    parts <- vapply(names(colors), function(k) {
+      paste0(k, ": ", as_js(colors[[k]]))
+    }, "")
+    paste0("{", paste(parts, collapse = ", "), "}")
+  } else {
+    "null"
+  }
+
   geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
   div_id        <- paste0(id, "-polygon-selector-", filter_idx)
 
@@ -586,16 +610,19 @@ polygon_selector <- function(
       'document.addEventListener("DOMContentLoaded", function() {',
       '  var db = window.__quartoWidgets && window.__quartoWidgets["%s"];',
       '  if (db) db.addPolygonSelector({',
-      '    containerSelector: "%s",',
-      '    geoScriptId:       "%s",',
-      '    filterLevel:       %d,',
-      '    nameProp:          %s,',
-      '    parentFilter:      %s,',
-      '    parentProp:        %s,',
-      '    showWhenFilter:    %s,',
-      '    layered:           %s,',
-      '    zoomToVisible:     %s,',
-      '    backLabel:         %s',
+      '    containerSelector:    "%s",',
+      '    geoScriptId:          "%s",',
+      '    filterLevel:          %d,',
+      '    nameProp:             %s,',
+      '    parentFilter:         %s,',
+      '    parentProp:           %s,',
+      '    showWhenFilter:       %s,',
+      '    layered:              %s,',
+      '    zoomToVisible:        %s,',
+      '    backLabel:            %s,',
+      '    selectedStrokeWidth:  %s,',
+      '    colors:               %s,',
+      '    showEmptyGeometries:  %s',
       '  });',
       '});'
     ),
@@ -604,7 +631,10 @@ polygon_selector <- function(
     as_js(show_when_filter),
     if (isTRUE(layered)) "true" else "false",
     if (isTRUE(zoom_to_visible)) "true" else "false",
-    as_js(back_label)
+    as_js(back_label),
+    as.character(selected_stroke_width),
+    colors_js,
+    if (isTRUE(show_empty_geometries)) "true" else "false"
   )
 
   htmltools::tagList(
