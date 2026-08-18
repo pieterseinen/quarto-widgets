@@ -843,16 +843,17 @@
           return 'pointer';
         })
         .on('mouseenter', function(ev, f) {
-          const hasData = d3.select(this).attr('data-has-data') !== 'false';
-          if (!hasData) return;
-          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', self.colors.hover);
+          const el = d3.select(this);
+          const hasData = el.attr('data-has-data') !== 'false';
+          // Show tooltip for ALL polygons (including empty ones)
           const tip = _getTooltip();
-          tip.innerHTML = '<strong>' + f.properties[self.nameProp] + '</strong>';
+          tip.innerHTML = '<strong>' + f.properties[self.nameProp] + '</strong>'
+            + (!hasData ? '<br><em style="color:#999">Geen data beschikbaar</em>' : '');
           tip.style.opacity = '1';
+          // Only apply hover fill for polygons with data
+          if (hasData && el.attr('data-selected') !== 'true') el.attr('fill', self.colors.hover);
         })
         .on('mousemove', function(ev) {
-          const hasData = d3.select(this).attr('data-has-data') !== 'false';
-          if (!hasData) return;
           const tip = _getTooltip();
           tip.style.left = (ev.clientX + 14) + 'px';
           tip.style.top  = (ev.clientY - 36) + 'px';
@@ -860,8 +861,7 @@
         .on('mouseleave', function() {
           const el = d3.select(this);
           const hasData = el.attr('data-has-data') !== 'false';
-          if (!hasData) return;
-          if (el.attr('data-selected') !== 'true') el.attr('fill', self.colors.fill);
+          if (hasData && el.attr('data-selected') !== 'true') el.attr('fill', self.colors.fill);
           _getTooltip().style.opacity = '0';
         })
         .on('click', function(ev, f) {
@@ -870,31 +870,6 @@
           ev.stopPropagation();
           self._handleClick(f);
         });
-
-      // Add polygon labels (especially useful for empty polygons so users
-      // can see which data is missing)
-      this.mapLayer.selectAll('text.polygon-label').remove();
-      this.mapLayer.selectAll('text.polygon-label')
-        .data(features, f => `label:${f.properties[self.nameProp]}`)
-        .join('text')
-        .attr('class', 'polygon-label')
-        .attr('x', f => {
-          const centroid = d3.geoCentroid(f);
-          const pt = self.proj(centroid);
-          return pt ? pt[0] : 0;
-        })
-        .attr('y', f => {
-          const centroid = d3.geoCentroid(f);
-          const pt = self.proj(centroid);
-          return pt ? pt[1] : 0;
-        })
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('font-size', this.currentLevel === 'parent' ? '9px' : '7px')
-        .attr('font-family', 'sans-serif')
-        .attr('fill', '#333')
-        .attr('pointer-events', 'none')
-        .text(f => f.properties[self.nameProp]);
 
       this._updateBackButton();
       this._updateMessage();
