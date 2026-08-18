@@ -858,9 +858,10 @@
           tip.style.top  = (ev.clientY - 36) + 'px';
         })
         .on('mouseleave', function() {
-          const hasData = d3.select(this).attr('data-has-data') !== 'false';
+          const el = d3.select(this);
+          const hasData = el.attr('data-has-data') !== 'false';
           if (!hasData) return;
-          if (d3.select(this).attr('data-selected') !== 'true') d3.select(this).attr('fill', self.colors.fill);
+          if (el.attr('data-selected') !== 'true') el.attr('fill', self.colors.fill);
           _getTooltip().style.opacity = '0';
         })
         .on('click', function(ev, f) {
@@ -869,6 +870,31 @@
           ev.stopPropagation();
           self._handleClick(f);
         });
+
+      // Add polygon labels (especially useful for empty polygons so users
+      // can see which data is missing)
+      this.mapLayer.selectAll('text.polygon-label').remove();
+      this.mapLayer.selectAll('text.polygon-label')
+        .data(features, f => `label:${f.properties[self.nameProp]}`)
+        .join('text')
+        .attr('class', 'polygon-label')
+        .attr('x', f => {
+          const centroid = d3.geoCentroid(f);
+          const pt = self.proj(centroid);
+          return pt ? pt[0] : 0;
+        })
+        .attr('y', f => {
+          const centroid = d3.geoCentroid(f);
+          const pt = self.proj(centroid);
+          return pt ? pt[1] : 0;
+        })
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', this.currentLevel === 'parent' ? '9px' : '7px')
+        .attr('font-family', 'sans-serif')
+        .attr('fill', '#333')
+        .attr('pointer-events', 'none')
+        .text(f => f.properties[self.nameProp]);
 
       this._updateBackButton();
       this._updateMessage();
@@ -1003,11 +1029,13 @@
 
       this.currentParentValue = parentValue;
       if (this.paths) {
+        const self = this;
         this.paths.style('display', f =>
           !parentValue || !this.parentProp || f.properties[this.parentProp] === parentValue ? null : 'none'
         );
-        this.paths.attr('fill', this.colors.fill).attr('data-selected', null)
-          .attr('stroke-width', 0.8);
+        this.paths.attr('fill', function() {
+          return d3.select(this).attr('data-has-data') === 'false' ? self.colors.empty : self.colors.fill;
+        }).attr('data-selected', null).attr('stroke-width', 0.8);
         this._fitVisibleFeatures();
       }
       this._updateMessage();
@@ -1020,20 +1048,30 @@
 
     _onWijkSelected(s) {
       if (!this.paths) return;
+      const self = this;
       if (!s?.filterValues) {
-        this.paths.attr('fill', this.colors.fill).attr('data-selected', null)
-          .attr('stroke-width', 0.8).attr('stroke', this.colors.stroke);
+        // Reset fills but respect empty polygons (preserve data-has-data styling)
+        this.paths
+          .attr('fill', function() {
+            return d3.select(this).attr('data-has-data') === 'false' ? self.colors.empty : self.colors.fill;
+          })
+          .attr('data-selected', null)
+          .attr('stroke-width', 0.8)
+          .attr('stroke', this.colors.stroke);
         return;
       }
       const filterCol = this.data.filters[this.filterLevel]?.col;
       if (!filterCol) return;
       const selected = s.filterValues[filterCol];
-      const self = this;
       this.paths
-        .attr('fill', f => f.properties[this.nameProp] === selected ? this.colors.selected : this.colors.fill)
-        .attr('data-selected', f => f.properties[this.nameProp] === selected ? 'true' : null)
-        .attr('stroke-width', f => f.properties[this.nameProp] === selected ? this.selectedStrokeWidth : 0.8)
-        .attr('stroke', f => f.properties[this.nameProp] === selected ? this.colors.stroke : this.colors.stroke);
+        .attr('fill', function(f) {
+          if (f.properties[self.nameProp] === selected) return self.colors.selected;
+          if (d3.select(this).attr('data-has-data') === 'false') return self.colors.empty;
+          return self.colors.fill;
+        })
+        .attr('data-selected', f => f.properties[self.nameProp] === selected ? 'true' : null)
+        .attr('stroke-width', f => f.properties[self.nameProp] === selected ? self.selectedStrokeWidth : 0.8)
+        .attr('stroke', self.colors.stroke);
 
       // Raise selected polygon so its outline renders on top of neighbors
       this.paths.filter(f => f.properties[self.nameProp] === selected).raise();
