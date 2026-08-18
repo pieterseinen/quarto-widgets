@@ -123,7 +123,14 @@ widget_selectors(wd, filter = "gemeente")
 
 :::
 
-::: {.column width="70%"}
+:::{.column widht="70%"}
+:::
+
+:::
+
+::: {.columns}
+
+::: {.column width="25%"}
 
 **Wijk (klik op de kaart)**
 
@@ -144,20 +151,25 @@ polygon_selector(
 
 :::
 
-:::
-
----
-
-## Analyse
-
-```{r sunburst-row}
-#| layout-ncol: 2
+::: {.column width="25%"}
+```{r sunburst}
+#| layout-nrow: 2
 sunburst_chart(wd)
 widget_gauge(wd)
+
 ```
 
+
+:::
+
+::: {.column width=="25%}
 ```{r detail-panel}
 widget_header(wd)
 widget_table(wd)
 widget_plot(wd)
 ```
+:::
+
+:::
+
+
