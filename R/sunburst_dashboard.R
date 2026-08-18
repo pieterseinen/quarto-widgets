@@ -524,11 +524,21 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
 
   dat <- sf::st_transform(dat, crs = 4326)
 
-  # Helper to write sf object to GeoJSON string
+  # Helper to write sf object to GeoJSON string (RFC 7946 winding order)
   .to_geojson_string <- function(sf_obj) {
     tmp <- tempfile(fileext = ".geojson")
     on.exit(unlink(tmp), add = TRUE)
-    sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
+    # RFC7946=YES forces counter-clockwise exterior rings, which D3 requires.
+    # Without this, st_union() results can have inverted winding causing D3
+    # to render the polygon complement (a filled rectangle).
+    tryCatch(
+      sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE,
+                   layer_options = "RFC7946=YES"),
+      error = function(e) {
+        # Fallback for older GDAL without RFC7946 support
+        sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
+      }
+    )
     paste(readLines(tmp, warn = FALSE), collapse = "")
   }
 
@@ -538,6 +548,12 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
   # Parent-level dissolved GeoJSON (if dissolve_by is set)
   parent_geojson <- NULL
   if (!is.null(dissolve_by) && dissolve_by %in% names(dat)) {
+    # Temporarily disable S2 spherical geometry to ensure consistent winding
+    # order from st_union() — S2 can produce inverted rings.
+    s2_was_active <- sf::sf_use_s2()
+    sf::sf_use_s2(FALSE)
+    on.exit(sf::sf_use_s2(s2_was_active), add = TRUE)
+
     parent_sf <- do.call(rbind, lapply(split(dat, dat[[dissolve_by]]), function(grp) {
       merged <- sf::st_union(grp)
       row    <- sf::st_sf(
@@ -546,6 +562,7 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
       )
       row
     }))
+    parent_sf <- sf::st_make_valid(parent_sf)
     parent_geojson <- .to_geojson_string(parent_sf)
   }
 
