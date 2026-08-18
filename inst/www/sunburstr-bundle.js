@@ -738,6 +738,7 @@
     }
 
     // Determine which polygon names have data for the current view
+    // Returns the set of child-level polygon names that have data
     _getDataValues(parentValue) {
       const filterCol = this.data.filters[this.filterLevel]?.col;
       if (!filterCol) return new Set();
@@ -748,16 +749,29 @@
       return new Set(rows.map(r => r[filterCol]).filter(Boolean));
     }
 
+    // Returns the set of parent-level values that have at least one data row
+    _getParentDataValues() {
+      if (!this.parentFilter) return new Set();
+      return new Set(this.data.rows.map(r => r[this.parentFilter]).filter(Boolean));
+    }
+
+    // Determine whether a feature has data, works for both parent and child level
+    _featureHasData(feature, dataValues) {
+      return dataValues.has(feature.properties[this.nameProp]);
+    }
+
     _drawCurrentLayer() {
       const self = this;
       let features = this._getCurrentFeatures();
 
-      // Determine which polygon names have matching data
-      const dataValues = this._getDataValues(this.currentParentValue);
+      // Get the appropriate data values set for the current level
+      const dataValues = this.currentLevel === 'parent'
+        ? this._getParentDataValues()
+        : this._getDataValues(this.currentParentValue);
 
       // Filter out empty geometries if configured to hide them
-      if (!this.showEmptyGeometries && this.currentLevel === 'child') {
-        features = features.filter(f => dataValues.has(f.properties[self.nameProp]));
+      if (!this.showEmptyGeometries) {
+        features = features.filter(f => self._featureHasData(f, dataValues));
       }
 
       this.mapLayer.selectAll('path').remove();
@@ -767,21 +781,14 @@
         .join('path')
         .attr('d', this.pathFn)
         .attr('fill', f => {
-          if (self.currentLevel === 'child' && !dataValues.has(f.properties[self.nameProp])) {
-            return self.colors.empty;
-          }
+          if (!self._featureHasData(f, dataValues)) return self.colors.empty;
           return self.colors.fill;
         })
         .attr('stroke', this.colors.stroke)
         .attr('stroke-width', 0.8)
-        .attr('data-has-data', f => {
-          if (self.currentLevel !== 'child') return 'true';
-          return dataValues.has(f.properties[self.nameProp]) ? 'true' : 'false';
-        })
+        .attr('data-has-data', f => self._featureHasData(f, dataValues) ? 'true' : 'false')
         .style('cursor', f => {
-          if (self.currentLevel === 'child' && !dataValues.has(f.properties[self.nameProp])) {
-            return 'default';
-          }
+          if (!self._featureHasData(f, dataValues)) return 'default';
           return 'pointer';
         })
         .on('mouseenter', function(ev, f) {
