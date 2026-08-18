@@ -524,21 +524,16 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
 
   dat <- sf::st_transform(dat, crs = 4326)
 
-  # Helper to write sf object to GeoJSON string (RFC 7946 winding order)
+  # Helper to write sf object to GeoJSON string
+  # NOTE: Do NOT use layer_options="RFC7946=YES" here. D3 v4+ geoPath with
+  # geoMercator expects CLOCKWISE exterior rings (spherical right-hand rule).
+  # RFC7946 forces counter-clockwise, which D3 renders as the polygon
+  # complement (a filled rectangle). Winding correction is handled in JS
+  # via _fixWinding() using d3.geoArea() detection.
   .to_geojson_string <- function(sf_obj) {
     tmp <- tempfile(fileext = ".geojson")
     on.exit(unlink(tmp), add = TRUE)
-    # RFC7946=YES forces counter-clockwise exterior rings, which D3 requires.
-    # Without this, st_union() results can have inverted winding causing D3
-    # to render the polygon complement (a filled rectangle).
-    tryCatch(
-      sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE,
-                   layer_options = "RFC7946=YES"),
-      error = function(e) {
-        # Fallback for older GDAL without RFC7946 support
-        sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
-      }
-    )
+    sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
     paste(readLines(tmp, warn = FALSE), collapse = "")
   }
 

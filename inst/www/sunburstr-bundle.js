@@ -674,10 +674,38 @@
       this.selectedStrokeWidth = selectedStrokeWidth;
       this.showEmptyGeometries = showEmptyGeometries;
 
+      // Fix winding order for D3 compatibility on both geo sources
+      this._fixWinding(this.geo);
+      if (this.parentGeo) this._fixWinding(this.parentGeo);
+
       this._render();
       this.eb.on('filter-level-changed', vals => this._onFilterChanged(vals), false);
       this.eb.on('wijk-selected', s => this._onWijkSelected(s), false);
       this._onFilterChanged(this.eb.get('filter-level-changed') || {});
+    }
+
+    // Fix winding order for D3 v4+ compatibility.
+    // D3's geoPath with geoMercator uses the spherical right-hand rule:
+    // clockwise exterior rings = polygon interior. If sf/st_union produces
+    // counter-clockwise rings, D3 renders the complement (a filled rectangle).
+    // Detection: d3.geoArea() returns > 2π steradians for inverted polygons.
+    _fixWinding(geojson) {
+      if (!geojson || !geojson.features) return;
+      const TAU = 2 * Math.PI;
+      geojson.features.forEach(f => {
+        if (!f.geometry) return;
+        const area = d3.geoArea(f);
+        if (area > TAU) {
+          // Polygon is inverted — reverse all ring coordinate arrays
+          if (f.geometry.type === 'Polygon') {
+            f.geometry.coordinates = f.geometry.coordinates.map(ring => ring.slice().reverse());
+          } else if (f.geometry.type === 'MultiPolygon') {
+            f.geometry.coordinates = f.geometry.coordinates.map(polygon =>
+              polygon.map(ring => ring.slice().reverse())
+            );
+          }
+        }
+      });
     }
 
     _render() {
