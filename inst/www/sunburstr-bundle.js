@@ -633,13 +633,15 @@
   // PolygonSelector — clickable SVG map that drives wijk-selected
   // ════════════════════════════════════════════════════════════════
   class PolygonSelector {
-    constructor({ container, geoData, filterLevel, nameProp,
+    constructor({ container, geoData, parentGeoData = null, filterLevel, nameProp,
                   parentFilter, parentProp, showWhenFilter,
-                  layered = false, zoomToVisible = true, backLabel = 'Terug naar hoger niveau',
+                  layered = false, defaultLevel = null, zoomToVisible = true,
+                  backLabel = 'Terug naar hoger niveau',
                   data, state, eventBus,
                   colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true }) {
       this.el             = document.querySelector(container);
       this.geo            = geoData;
+      this.parentGeo      = parentGeoData;
       this.filterLevel    = filterLevel;
       this.nameProp       = nameProp;
       this.parentFilter   = parentFilter;
@@ -651,7 +653,13 @@
       this.data           = data;
       this.state          = state;
       this.eb             = eventBus;
-      this.currentLevel   = this.layered ? 'parent' : 'child';
+
+      // Determine starting level
+      if (defaultLevel === 'child' || defaultLevel === 'parent') {
+        this.currentLevel = defaultLevel;
+      } else {
+        this.currentLevel = this.layered ? 'parent' : 'child';
+      }
       this.currentParentValue = null;
       this.selectedParentValue = null;
 
@@ -708,6 +716,21 @@
     }
 
     _buildParentFeatures() {
+      // If a dedicated dissolved parent GeoJSON was provided, use its features
+      if (this.parentGeo && this.parentGeo.features) {
+        return this.parentGeo.features.map(f => {
+          // Ensure the nameProp is set on parent features for consistent lookup
+          const props = { ...f.properties, __level: 'parent' };
+          // The parent GeoJSON uses the dissolve_by column as its name property
+          // Map it to nameProp so _featureHasData and click handlers work
+          if (!props[this.nameProp] && this.parentProp && props[this.parentProp]) {
+            props[this.nameProp] = props[this.parentProp];
+          }
+          return { type: 'Feature', properties: props, geometry: f.geometry };
+        }).filter(f => f.properties[this.nameProp]);
+      }
+
+      // Fallback: build parent features from child GeometryCollection groups
       if (!this.parentProp) return [];
       const groups = d3.group(this.geo.features, f => f.properties[this.parentProp]);
       return Array.from(groups, ([parentValue, features]) => {
@@ -829,6 +852,14 @@
         this.selectedParentValue = feature.properties[this.nameProp];
         this.currentParentValue = this.selectedParentValue;
         this.currentLevel = 'child';
+
+        // Emit parent filter change so dropdowns and other widgets sync
+        if (this.parentFilter) {
+          const partial = this.eb.get('filter-level-changed') || {};
+          const updated = { ...partial, [this.parentFilter]: this.selectedParentValue };
+          this.eb.emit('filter-level-changed', updated);
+        }
+
         this._drawCurrentLayer();
         return;
       }
@@ -1031,13 +1062,14 @@
     // themselves to this widget set's EventBus after DOMContentLoaded.
     const api = {
       state, data, sunburst, gauge,
-      addPolygonSelector({ containerSelector, geoScriptId, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
+      addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
+        const parentGeoData = parentGeoScriptId ? readEmbeddedJson(parentGeoScriptId) : null;
         new PolygonSelector({
-          container: containerSelector, geoData, filterLevel,
+          container: containerSelector, geoData, parentGeoData, filterLevel,
           nameProp, parentFilter, parentProp, showWhenFilter,
-          layered, zoomToVisible, backLabel, data, state, eventBus,
+          layered, defaultLevel, zoomToVisible, backLabel, data, state, eventBus,
           colors: colors || {}, selectedStrokeWidth, showEmptyGeometries
         });
       }

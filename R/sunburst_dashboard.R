@@ -461,33 +461,60 @@ sunburst_dashboard <- widget_layout
 #' simplifies geometries, reprojects to WGS 84, and returns a list ready to
 #' pass to \code{\link{polygon_selector}}.
 #'
+#' When \code{dissolve_by} is provided, the function additionally creates a
+#' dissolved (unioned) version of the geometries grouped by that column. This
+#' is used by \code{\link{polygon_selector}} in layered mode to show clean
+#' parent-level outlines without internal child boundaries.
+#'
 #' @param path Path to the spatial file (e.g. the \code{.shp} file).
 #' @param name_col Attribute column whose values match the filter column values
 #'   in the dashboard data.
 #' @param extra_cols Additional attribute columns to retain (e.g. a parent
 #'   column for layered filtering). Default \code{NULL}.
+#' @param dissolve_by Optional column name to dissolve (union) geometries by.
+#'   Produces a separate parent-level GeoJSON where all child geometries sharing
+#'   the same value are merged into a single polygon per parent group. Typically
+#'   this matches the \code{parent_filter} column in \code{\link{polygon_selector}}.
+#'   Default \code{NULL} (no dissolve).
 #' @param simplify_tol Simplification tolerance in CRS units (metres).
 #'   \code{NULL} skips simplification. Default \code{100}.
 #'
-#' @return A named list with \code{geojson} (UTF-8 string) and \code{name_col}.
+#' @return A named list with:
+#'   \describe{
+#'     \item{\code{geojson}}{Child-level GeoJSON (UTF-8 string).}
+#'     \item{\code{name_col}}{The value of \code{name_col}.}
+#'     \item{\code{parent_geojson}}{Parent-level dissolved GeoJSON (only when
+#'       \code{dissolve_by} is set; \code{NULL} otherwise).}
+#'     \item{\code{parent_col}}{The value of \code{dissolve_by} (or \code{NULL}).}
+#'   }
 #'
-#' @details Requires the \pkg{sf} package.
+#' @details Requires the \pkg{sf} package. When \code{dissolve_by} is set,
+#'   \code{sf::st_union()} is used to merge geometries per group, producing
+#'   clean outer boundaries without internal borders.
 #'
 #' @seealso \code{\link{polygon_selector}}
 #'
 #' @examples
 #' \dontrun{
+#' # Single level (wijken only)
 #' wijk_geo <- geo_prepare("wijken.shp", name_col = "statnaam",
 #'                          extra_cols = "gemeente", simplify_tol = 150)
+#'
+#' # With dissolved parent level (gemeenten from wijk shapefile)
+#' wijk_geo <- geo_prepare("wijken.shp", name_col = "statnaam",
+#'                          extra_cols = "gemeente",
+#'                          dissolve_by = "gemeente",
+#'                          simplify_tol = 150)
 #' }
 #'
 #' @export
-geo_prepare <- function(path, name_col, extra_cols = NULL, simplify_tol = 100) {
+geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
+                        simplify_tol = 100) {
   if (!requireNamespace("sf", quietly = TRUE))
     stop("Package 'sf' is required. Install with: install.packages('sf')", call. = FALSE)
 
   dat  <- sf::st_read(path, quiet = TRUE)
-  keep <- unique(c(name_col, extra_cols))
+  keep <- unique(c(name_col, extra_cols, dissolve_by))
   keep <- keep[keep %in% names(dat)]
   dat  <- dat[, keep, drop = FALSE]
   dat  <- sf::st_make_valid(dat)
@@ -497,11 +524,37 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, simplify_tol = 100) {
 
   dat <- sf::st_transform(dat, crs = 4326)
 
-  tmp <- tempfile(fileext = ".geojson")
-  on.exit(unlink(tmp), add = TRUE)
-  sf::st_write(dat, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
-  list(geojson = paste(readLines(tmp, warn = FALSE), collapse = ""),
-       name_col = name_col)
+  # Helper to write sf object to GeoJSON string
+  .to_geojson_string <- function(sf_obj) {
+    tmp <- tempfile(fileext = ".geojson")
+    on.exit(unlink(tmp), add = TRUE)
+    sf::st_write(sf_obj, tmp, driver = "GeoJSON", delete_dsn = TRUE, quiet = TRUE)
+    paste(readLines(tmp, warn = FALSE), collapse = "")
+  }
+
+  # Child-level GeoJSON
+  child_geojson <- .to_geojson_string(dat)
+
+  # Parent-level dissolved GeoJSON (if dissolve_by is set)
+  parent_geojson <- NULL
+  if (!is.null(dissolve_by) && dissolve_by %in% names(dat)) {
+    parent_sf <- do.call(rbind, lapply(split(dat, dat[[dissolve_by]]), function(grp) {
+      merged <- sf::st_union(grp)
+      row    <- sf::st_sf(
+        setNames(data.frame(grp[[dissolve_by]][1L], stringsAsFactors = FALSE), dissolve_by),
+        geometry = merged
+      )
+      row
+    }))
+    parent_geojson <- .to_geojson_string(parent_sf)
+  }
+
+  list(
+    geojson        = child_geojson,
+    name_col       = name_col,
+    parent_geojson = parent_geojson,
+    parent_col     = dissolve_by
+  )
 }
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -526,6 +579,9 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, simplify_tol = 100) {
 #'   a value is selected for that filter.
 #' @param layered Logical. When \code{TRUE} the map shows parent polygons first;
 #'   clicking one zooms to its children. Requires \code{parent_filter}.
+#' @param default_level Character. Starting level when \code{layered = TRUE}:
+#'   \code{"parent"} (default) shows the parent-level map first,
+#'   \code{"child"} shows child polygons immediately.
 #' @param zoom_to_visible Logical. Fit the map to visible polygons. Default \code{TRUE}.
 #' @param back_label Back-navigation button label in layered mode.
 #'   Default \code{"Terug naar hoger niveau"}.
@@ -566,6 +622,7 @@ polygon_selector <- function(
     geo_parent_prop  = NULL,
     show_when_filter = NULL,
     layered          = FALSE,
+    default_level    = "parent",
     zoom_to_visible  = TRUE,
     back_label       = "Terug naar hoger niveau",
     selected_stroke_width = 2.5,
@@ -605,6 +662,10 @@ polygon_selector <- function(
   geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
   div_id        <- paste0(id, "-polygon-selector-", filter_idx)
 
+  # Embed parent-level dissolved GeoJSON if available
+  has_parent_geo <- !is.null(geo$parent_geojson)
+  parent_geo_script_id <- paste0(id, "-polygon-parent-geo-", filter_idx)
+
   boot <- sprintf(
     paste0(
       'document.addEventListener("DOMContentLoaded", function() {',
@@ -612,12 +673,14 @@ polygon_selector <- function(
       '  if (db) db.addPolygonSelector({',
       '    containerSelector:    "%s",',
       '    geoScriptId:          "%s",',
+      '    parentGeoScriptId:    %s,',
       '    filterLevel:          %d,',
       '    nameProp:             %s,',
       '    parentFilter:         %s,',
       '    parentProp:           %s,',
       '    showWhenFilter:       %s,',
       '    layered:              %s,',
+      '    defaultLevel:         %s,',
       '    zoomToVisible:        %s,',
       '    backLabel:            %s,',
       '    selectedStrokeWidth:  %s,',
@@ -626,10 +689,13 @@ polygon_selector <- function(
       '  });',
       '});'
     ),
-    id, paste0("#", div_id), geo_script_id, filter_idx,
+    id, paste0("#", div_id), geo_script_id,
+    if (has_parent_geo) as_js(parent_geo_script_id) else "null",
+    filter_idx,
     as_js(geo_name_prop), as_js(parent_filter), as_js(geo_parent_prop),
     as_js(show_when_filter),
     if (isTRUE(layered)) "true" else "false",
+    as_js(default_level),
     if (isTRUE(zoom_to_visible)) "true" else "false",
     as_js(back_label),
     as.character(selected_stroke_width),
@@ -637,14 +703,29 @@ polygon_selector <- function(
     if (isTRUE(show_empty_geometries)) "true" else "false"
   )
 
-  htmltools::tagList(
+  tags <- list(
     htmltools::tags$script(
       id = geo_script_id, type = "application/json",
       htmltools::HTML(geo$geojson)
-    ),
+    )
+  )
+
+  # Add parent GeoJSON script tag if available
+  if (has_parent_geo) {
+    tags <- c(tags, list(
+      htmltools::tags$script(
+        id = parent_geo_script_id, type = "application/json",
+        htmltools::HTML(geo$parent_geojson)
+      )
+    ))
+  }
+
+  tags <- c(tags, list(
     htmltools::div(id = div_id, class = "polygon-selector"),
     htmltools::tags$script(htmltools::HTML(boot))
-  )
+  ))
+
+  do.call(htmltools::tagList, tags)
 }
 
 sunburst_polygon_selector <- polygon_selector
