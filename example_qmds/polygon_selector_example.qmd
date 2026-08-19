@@ -27,6 +27,7 @@ wijk_geo <- geo_prepare(
   path         = shp_path,
   name_col     = "statnaam",
   extra_cols   = "gemeente",
+  dissolve_by = "gemeente",
   simplify_tol = 150
 )
 
@@ -142,10 +143,11 @@ polygon_selector(
   parent_filter    = "gemeente",
   geo_name_prop    = "statnaam",
   geo_parent_prop  = "gemeente",
-  show_when_filter = "gemeente",
+#  show_when_filter = "gemeente",
   layered          = TRUE,
   zoom_to_visible  = TRUE,
-  back_label       = "Terug naar gemeenten"
+  back_label       = "Terug naar gemeenten",
+  selected_stroke_width = 3
 )
 ```
 

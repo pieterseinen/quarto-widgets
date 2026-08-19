@@ -458,13 +458,23 @@
     return sorted.find(c => score >= c.min) || sorted[sorted.length - 1] || categories[0];
   }
 
-  function _fontSize(node, dr) {
+  function _autoFontSize(node, dr) {
     const arc = node.x1 - node.x0;
     const r   = (dr[node.depth - 1] + dr[node.depth]) / 2;
     const w   = arc * r;
     if (node.depth === 1) { if (w > 130) return 14; if (w > 90) return 12; return 10; }
     if (w > 90) return 12; if (w > 55) return 10; if (w > 35) return 8;
     return 0;
+  }
+
+  // Compute available width for horizontal text inside an arc segment.
+  // For horizontal text, the limiting factor is the chord width of the
+  // arc at the mid-radius.
+  function _horizontalWidth(node, dr) {
+    const midAngle = (node.x1 - node.x0) / 2;
+    const midR = (dr[node.depth - 1] + dr[node.depth]) / 2;
+    // Chord width = 2 * midR * sin(halfArcAngle)
+    return 2 * midR * Math.sin(midAngle);
   }
 
   function _wrapText(text, maxW, fs) {
@@ -513,11 +523,19 @@
   // SunburstComponent
   // ════════════════════════════════════════════════════════════════
   class SunburstComponent {
-    constructor({ element, hierarchyData, state, eventBus, categories = DEFAULT_CATEGORIES }) {
+    constructor({ element, hierarchyData, state, eventBus, categories = DEFAULT_CATEGORIES, options = {} }) {
       this.el    = d3.select(element);
       this.state = state;
       this.eb    = eventBus;
       this.cats  = categories;
+
+      // Chart options (from sunburst_chart() R arguments)
+      this._opts = {
+        strokeColor: options.colors?.stroke || '#ffffff',
+        noDataColor: options.colors?.no_data || null,  // falls back to category
+        labelColor:  options.labelColor || '#333333',
+        fontSize:    options.fontSize || null  // null = auto
+      };
 
       const rw = { 1: 135, 2: 110, 3: 12 };
       const total = rw[1] + rw[2] + rw[3];
@@ -554,7 +572,7 @@
         .data(this.root.descendants().filter(n => n.depth > 0))
         .join('path')
         .attr('d', this._arc).attr('fill', n => this._colour(n))
-        .attr('stroke', 'white').attr('stroke-width', 2).style('cursor', 'pointer')
+        .attr('stroke', this._opts.strokeColor).attr('stroke-width', 2).style('cursor', 'pointer')
         .on('mouseenter', function(ev, n) {
           self.eb.emit('node-hovered', n);
           const base = self._colour(n);
@@ -582,21 +600,58 @@
 
     _drawLabels() {
       const dr = this._dr;
-      this._labels.selectAll('text').remove();
+      const opts = this._opts;
+      this._labels.selectAll('g.label-group').remove();
+
       this.root.descendants().filter(n => n.depth === 1 || n.depth === 2).forEach(node => {
-        const fs = _fontSize(node, dr);
+        // Determine font size (user override or auto)
+        let fs;
+        if (opts.fontSize) {
+          fs = node.depth === 1 ? opts.fontSize : Math.max(opts.fontSize - 2, 7);
+        } else {
+          fs = _autoFontSize(node, dr);
+        }
         if (!fs) return;
+
+        // Compute centroid position (horizontal placement)
         const midAngle = (node.x0 + node.x1) / 2;
         const midR     = (dr[node.depth - 1] + dr[node.depth]) / 2;
-        const arcLen   = (node.x1 - node.x0) * midR;
-        const lines    = _wrapText(node.data.name, arcLen * 0.85, fs);
-        const lineH    = fs * 1.15;
-        const totalH   = lines.length * lineH;
+        const cx = midR * Math.cos(midAngle - Math.PI / 2);
+        const cy = midR * Math.sin(midAngle - Math.PI / 2);
+
+        // Available width for horizontal text: chord width of the arc
+        const availW = _horizontalWidth(node, dr) * 0.85;
+        // Available height: ring thickness
+        const availH = dr[node.depth] - dr[node.depth - 1];
+
+        // Skip label if available width is too small
+        if (availW < fs * 1.5) return;
+
+        // Wrap text to fit within available width
+        const lines = _wrapText(node.data.name, availW, fs);
+        const lineH = fs * 1.2;
+        const totalH = lines.length * lineH;
+
+        // Skip if wrapped text would exceed available height
+        if (totalH > availH * 0.9) {
+          // Try with fewer lines: truncate to what fits
+          const maxLines = Math.floor((availH * 0.9) / lineH);
+          if (maxLines < 1) return;
+          lines.splice(maxLines);
+        }
+
+        const grp = this._labels.append('g')
+          .attr('class', 'label-group')
+          .attr('transform', `translate(${cx},${cy})`);
+
+        const actualLines = lines.length;
         lines.forEach((ln, li) => {
-          const offset = -totalH / 2 + lineH / 2 + li * lineH;
-          this._labels.append('text')
-            .attr('transform', `rotate(${midAngle * 180 / Math.PI - 90}) translate(${midR},0) rotate(${midAngle > Math.PI ? 180 : 0})`)
-            .attr('dy', offset + 'px').style('font-size', fs + 'px').text(ln);
+          const offset = -((actualLines - 1) * lineH) / 2 + li * lineH;
+          grp.append('text')
+            .attr('dy', offset + 'px')
+            .style('font-size', fs + 'px')
+            .style('fill', opts.labelColor)
+            .text(ln);
         });
       });
     }
@@ -1085,7 +1140,11 @@
 
     let sunburst = null;
     if (_elExists(sunburstSelector)) {
-      sunburst = new SunburstComponent({ element: sunburstSelector, hierarchyData, state, eventBus, categories });
+      // Read optional chart customisation from the embedded script tag
+      const sunburstOptsId = sunburstSelector.replace('#', '') + '-opts';
+      let sunburstOpts = {};
+      try { sunburstOpts = readEmbeddedJson(sunburstOptsId) || {}; } catch(e) { /* opts are optional */ }
+      sunburst = new SunburstComponent({ element: sunburstSelector, hierarchyData, state, eventBus, categories, options: sunburstOpts });
     }
 
     let gauge = null;
