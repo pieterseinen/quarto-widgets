@@ -301,22 +301,60 @@ sunburst_selectors <- widget_selectors
 
 #' Sunburst ring chart container
 #'
-#' Places the \code{<div>} for the three-ring sunburst chart.
+#' Places the \code{<div>} for the three-ring sunburst chart with optional
+#' visual customisation.
 #'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
-#' @return An \code{htmltools::tag} (\code{<div id="<id>-sunburst">}).
+#' @param colors Optional named list to customise segment colours. Supported keys:
+#'   \describe{
+#'     \item{\code{stroke}}{Border colour between segments (default \code{"#ffffff"}).}
+#'     \item{\code{no_data}}{Segment colour when no score available (default \code{"#bdbdbd"}).}
+#'   }
+#' @param label_color Text colour for segment labels. Default \code{"#333333"}.
+#' @param font_size Base font size in px for labels. When \code{NULL} (default), font
+#'   size is calculated automatically from available segment width. When a numeric value
+#'   is provided, it is used as the base size (ring 1 uses base, ring 2 uses base - 2).
+#'
+#' @return An \code{htmltools::tagList} with an optional options script and the
+#'   chart \code{<div>}.
 #'
 #' @examples
 #' \dontrun{
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' sunburst_chart(wd)
+#'
+#' # Custom styling
+#' sunburst_chart(wd, colors = list(stroke = "#eeeeee"),
+#'                label_color = "#000000", font_size = 11)
 #' }
 #'
 #' @export
-sunburst_chart <- function(widget_data) {
+sunburst_chart <- function(widget_data, colors = NULL, label_color = NULL,
+                           font_size = NULL) {
   .check_widget_data(widget_data)
-  htmltools::div(id = paste0(.widget_id(widget_data), "-sunburst"))
+  id <- .widget_id(widget_data)
+
+  opts <- list()
+  if (!is.null(colors) && is.list(colors)) opts$colors <- colors
+  if (!is.null(label_color))               opts$labelColor <- label_color
+  if (!is.null(font_size))                 opts$fontSize <- font_size
+
+  div_tag <- htmltools::div(id = paste0(id, "-sunburst"))
+
+  if (length(opts) > 0L) {
+    opts_json <- as.character(jsonlite::toJSON(opts, auto_unbox = TRUE, null = "null"))
+    htmltools::tagList(
+      htmltools::tags$script(
+        id = paste0(id, "-sunburst-opts"),
+        type = "application/json",
+        htmltools::HTML(opts_json)
+      ),
+      div_tag
+    )
+  } else {
+    div_tag
+  }
 }
 
 #' Colour-coded category gauge
