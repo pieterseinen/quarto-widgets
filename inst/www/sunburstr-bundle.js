@@ -298,7 +298,9 @@
     ];
     const sorted = [...rows].sort((a, b) => String(a[indCol] || '').localeCompare(String(b[indCol] || '')));
     const table = document.createElement('table');
-    table.className = 'display compact';
+    table.className = 'display compact nowrap';
+    table.style.width = '100%';
+    table.style.fontSize = 'inherit';  // inherits from parent container
     table.innerHTML = `<thead><tr>${headers.map(h => '<th>' + h + '</th>').join('')}</tr></thead>
       <tbody>${sorted.map(r => '<tr><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[scoreCol]) + '</td>'
         + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>').join('')}</tbody>`;
@@ -365,6 +367,14 @@
       this.header = headerElement ? document.querySelector(headerElement) : null;
       this.table  = tableElement  ? document.querySelector(tableElement)  : null;
       this.plot   = plotElement   ? document.querySelector(plotElement)   : null;
+
+      // Read configurable font sizes from data attributes (set by R)
+      this._headerFontSize = this.header?.dataset?.fontSize || '14';
+      this._tableFontSize  = this.table?.dataset?.fontSize  || '11';
+
+      // Apply base font-size to table container
+      if (this.table) this.table.style.fontSize = this._tableFontSize + 'px';
+
       this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._clear(); });
       this.eb.on('node-selected', node => this._renderNode(node));
     }
@@ -372,9 +382,9 @@
     _updateHeader(s) {
       if (!this.header) return;
       if (!s || !s.wijkRows.length) { this.header.innerHTML = ''; return; }
-      // Build header from filter values
+      // Build header from filter values — compact inline heading (no h2)
       const parts = this.config.filters.map(f => s.filterValues[f.col]).filter(Boolean);
-      this.header.innerHTML = '<h2>' + parts.join(' — ') + '</h2>';
+      this.header.innerHTML = '<div class="detail-header-text" style="font-size:' + this._headerFontSize + 'px;font-weight:600;margin:0 0 4px 0;line-height:1.3">' + parts.join(' \u2014 ') + '</div>';
     }
 
     _clear() {
@@ -391,6 +401,15 @@
       else if (node.depth === 3) this._renderLevel3(node, s);
     }
 
+    _makeSubheading(text) {
+      const h = document.createElement('div');
+      h.className = 'detail-subheading';
+      h.textContent = text;
+      const fs = Math.max(parseInt(this._tableFontSize) + 1, 12);
+      Object.assign(h.style, { fontSize: fs + 'px', fontWeight: '600', margin: '8px 0 2px 0', lineHeight: '1.3' });
+      return h;
+    }
+
     _renderLevel1(node, s) {
       // Domain level: show rows grouped by level-2 (theme)
       const keyPrefix = node.data.key + '|';
@@ -405,7 +424,7 @@
       });
       groups.forEach((grpRows, l2Name) => {
         if (this.table) {
-          const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h);
+          this.table.appendChild(this._makeSubheading(l2Name));
           const t = createIndicatorTable(grpRows, this.config);
           this.table.appendChild(t); initialiseTable(t);
         }
@@ -417,8 +436,8 @@
       const keyPrefix = node.data.key + '|';
       const rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
       if (this.table) {
-        const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name;
-        const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
+        const label = node.parent ? node.parent.data.name + ' \u2192 ' + node.data.name : node.data.name;
+        this.table.appendChild(this._makeSubheading(label));
         const t = createIndicatorTable(rows, this.config);
         this.table.appendChild(t); initialiseTable(t);
       }
@@ -429,7 +448,7 @@
       const row = s.wijkRows.find(r => r.key === node.data.key);
       if (!row) return;
       if (this.table) {
-        const h = document.createElement('h3'); h.textContent = node.data.name; this.table.appendChild(h);
+        this.table.appendChild(this._makeSubheading(node.data.name));
         const t = createIndicatorTable([row], this.config);
         this.table.appendChild(t); initialiseTable(t);
       }

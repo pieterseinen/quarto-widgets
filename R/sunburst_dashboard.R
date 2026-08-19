@@ -381,9 +381,11 @@ sunburst_gauge <- widget_gauge
 
 #' Detail header
 #'
-#' Places the \code{<div>} for the detail panel heading.
+#' Places the \code{<div>} for the detail panel heading. Sized to fit
+#' within a 1/3-width column by default.
 #'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
+#' @param font_size Font size in px for the header text. Default \code{14}.
 #' @return An \code{htmltools::tag} (\code{<div id="<id>-detail-header">}).
 #'
 #' @examples
@@ -391,21 +393,27 @@ sunburst_gauge <- widget_gauge
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_header(wd)
+#' widget_header(wd, font_size = 16)
 #' }
 #'
 #' @export
-widget_header <- function(widget_data) {
+widget_header <- function(widget_data, font_size = 14) {
   .check_widget_data(widget_data)
-  htmltools::div(id = paste0(.widget_id(widget_data), "-detail-header"))
+  htmltools::div(
+    id = paste0(.widget_id(widget_data), "-detail-header"),
+    `data-font-size` = as.character(font_size)
+  )
 }
 
 sunburst_header <- widget_header
 
 #' Detail indicator table
 #'
-#' Places the \code{<div>} for the DataTables detail table.
+#' Places the \code{<div>} for the DataTables detail table. Sized to fit
+#' within a 1/3-width column by default.
 #'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
+#' @param font_size Font size in px for table text. Default \code{11}.
 #' @return An \code{htmltools::tag} (\code{<div id="<id>-table-output">}).
 #'
 #' @examples
@@ -413,12 +421,16 @@ sunburst_header <- widget_header
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_table(wd)
+#' widget_table(wd, font_size = 12)
 #' }
 #'
 #' @export
-widget_table <- function(widget_data) {
+widget_table <- function(widget_data, font_size = 11) {
   .check_widget_data(widget_data)
-  htmltools::div(id = paste0(.widget_id(widget_data), "-table-output"))
+  htmltools::div(
+    id = paste0(.widget_id(widget_data), "-table-output"),
+    `data-font-size` = as.character(font_size)
+  )
 }
 
 sunburst_table <- widget_table

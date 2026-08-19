@@ -51,6 +51,37 @@ text {
 /* Table column */
 .detail-panel {
     width: 100%;
+    overflow: hidden;
+}
+
+/* ── Compact detail header & table defaults ───────────────────── */
+/* These ensure the header and table fit within a 1/3 column width */
+[id$="-detail-header"] {
+    margin: 0;
+    padding: 0;
+}
+[id$="-table-output"] {
+    margin: 0;
+    padding: 0;
+    overflow-x: auto;
+}
+[id$="-table-output"] table {
+    margin: 0 0 6px 0;
+}
+[id$="-table-output"] table th,
+[id$="-table-output"] table td {
+    padding: 3px 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+[id$="-table-output"] table th {
+    font-weight: 600;
+}
+.detail-subheading {
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 2px;
 }
 
 /* ── Polygon Selector ─────────────────────────────────────────── */
