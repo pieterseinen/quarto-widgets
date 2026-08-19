@@ -67,6 +67,8 @@ text {
 }
 [id$="-table-output"] table {
     margin: 0 0 6px 0;
+    table-layout: fixed;
+    width: 100% !important;  /* override DataTables inline width */
 }
 [id$="-table-output"] table th,
 [id$="-table-output"] table td {

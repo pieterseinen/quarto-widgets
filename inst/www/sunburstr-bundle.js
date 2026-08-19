@@ -308,7 +308,10 @@
   }
 
   function initialiseTable(table) {
-    return new DataTable(table, { paging: false, searching: false, info: false, ordering: false });
+    // autoWidth:false prevents DataTables from calculating fixed pixel column
+    // widths (via <colgroup>) which would override the container's percentage
+    // width and force the column to expand.
+    return new DataTable(table, { paging: false, searching: false, info: false, ordering: false, autoWidth: false });
   }
 
   // ════════════════════════════════════════════════════════════════
