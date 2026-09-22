@@ -128,7 +128,14 @@
       const deepest = this.filters[this.filters.length - 1];
       const entityId = deepest ? filterValues[deepest.col] : null;
 
-      return { filterValues, wijkRows, comparisonRows, lookup, entityId };
+      // Metadata for downstream consumers (table, plot)
+      const activeFilterIdx = this.filters.findIndex(f => f.col in this.scoreColMap && filterValues[f.col]);
+      const deepestFilledFilter = [...this.filters].reverse().find(f => filterValues[f.col] && this.scoreColMap[f.col]);
+      const activeFilterLabel = deepestFilledFilter ? deepestFilledFilter.label : null;
+      const allFiltersSet = this.filters.length > 0 && this.filters.every(f => !!filterValues[f.col]);
+
+      return { filterValues, wijkRows, comparisonRows, lookup, entityId,
+               activeScoreCol, activeFilterLabel, allFiltersSet };
     }
   }
 
@@ -321,22 +328,29 @@
   // ════════════════════════════════════════════════════════════════
   // Table helpers (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function createIndicatorTable(rows, config) {
-    const scoreCol = config.scoreCol || 'waarde';
+  function createIndicatorTable(rows, config, { scoreCol, scoreLabel } = {}) {
     const hCols    = config.hierarchyCols || [];
     const indCol   = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
     const compCols = config.comparisonCols || [];
+    // Resolve score column: explicit override > deepest filter mapping > fallback
+    const resolvedScoreCol = scoreCol || (function() {
+      const sc = config.scoreCol;
+      if (typeof sc === 'string') return sc;
+      const filters = config.filters || [];
+      const deepest = filters[filters.length - 1];
+      return deepest && sc ? (sc[deepest.col] || 'waarde') : 'waarde';
+    })();
 
     const headers = [
       hCols.length ? hCols[hCols.length - 1].label : 'Indicator',
-      'Score',
+      scoreLabel || 'Score',
       ...compCols.map(c => c.label)
     ];
     const sorted = [...rows].sort((a, b) => String(a[indCol] || '').localeCompare(String(b[indCol] || '')));
     const table = document.createElement('table');
     table.className = 'display compact';
     table.innerHTML = `<thead><tr>${headers.map(h => '<th>' + h + '</th>').join('')}</tr></thead>
-      <tbody>${sorted.map(r => '<tr><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[scoreCol]) + '</td>'
+      <tbody>${sorted.map(r => '<tr><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[resolvedScoreCol]) + '</td>'
         + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>').join('')}</tbody>`;
     return table;
   }
@@ -348,7 +362,7 @@
   // ════════════════════════════════════════════════════════════════
   // Comparison plot (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function drawComparisonPlot({ elementId, rows, selectedEntityId, config }) {
+  function drawComparisonPlot({ elementId, rows, selectedEntityId, config, scoreCol: overrideScoreCol }) {
     const el = document.getElementById(elementId);
     if (!el) return;
     if (!rows || !rows.length) { el.innerHTML = ''; return; }
@@ -356,8 +370,13 @@
     const filters  = config.filters || [];
     const deepest  = filters[filters.length - 1];
     const labelCol = deepest ? deepest.col : null;
-    const scoreCol = config.scoreCol || 'waarde';
     const compCols = config.comparisonCols || [];
+    // Always use the deepest filter's score column for comparison bars
+    const scoreCol = overrideScoreCol || (function() {
+      const sc = config.scoreCol;
+      if (typeof sc === 'string') return sc;
+      return deepest && sc ? (sc[deepest.col] || 'waarde') : 'waarde';
+    })();
 
     const ordered = [...rows].sort((a, b) =>
       String(a[labelCol] || '').localeCompare(String(b[labelCol] || ''))
@@ -427,10 +446,26 @@
       else if (node.depth === 3) this._renderLevel3(node, s);
     }
 
+    // Deduplicate rows by key (one row per indicator).  Needed when only a
+    // parent filter is selected and wijkRows contains one row per child entity.
+    _dedup(rows) {
+      const seen = new Set();
+      return rows.filter(r => { if (seen.has(r.key)) return false; seen.add(r.key); return true; });
+    }
+
+    // Table options derived from the current selection
+    _tableOpts(s) {
+      return {
+        scoreCol:   s.activeScoreCol,
+        scoreLabel: s.activeFilterLabel ? 'Score ' + s.activeFilterLabel : 'Score'
+      };
+    }
+
     _renderLevel1(node, s) {
       // Domain level: show rows grouped by level-2 (theme)
       const keyPrefix = node.data.key + '|';
-      const rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      if (!s.allFiltersSet) rows = this._dedup(rows);
       // Group by level-2 key part
       const groups = new Map();
       rows.forEach(r => {
@@ -442,7 +477,7 @@
       groups.forEach((grpRows, l2Name) => {
         if (this.table) {
           const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h);
-          const t = createIndicatorTable(grpRows, this.config);
+          const t = createIndicatorTable(grpRows, this.config, this._tableOpts(s));
           this.table.appendChild(t); initialiseTable(t);
         }
       });
@@ -451,27 +486,34 @@
     _renderLevel2(node, s) {
       // Theme level: show all indicators under this theme
       const keyPrefix = node.data.key + '|';
-      const rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      if (!s.allFiltersSet) rows = this._dedup(rows);
       if (this.table) {
         const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name;
         const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
-        const t = createIndicatorTable(rows, this.config);
+        const t = createIndicatorTable(rows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
       }
     }
 
     _renderLevel3(node, s) {
       // Indicator level: single row table + comparison plot
-      const row = s.wijkRows.find(r => r.key === node.data.key);
+      let tableRows = s.wijkRows.filter(r => r.key === node.data.key);
+      if (!s.allFiltersSet) tableRows = this._dedup(tableRows);
+      const row = tableRows[0];
       if (!row) return;
       if (this.table) {
         const h = document.createElement('h3'); h.textContent = node.data.name; this.table.appendChild(h);
-        const t = createIndicatorTable([row], this.config);
+        const t = createIndicatorTable(tableRows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
       }
       if (this.plot) {
         const compRows = s.comparisonRows.filter(r => r.key === node.data.key);
-        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config });
+        // Comparison plot always uses the deepest-level score column
+        const deepest = this.config.filters[this.config.filters.length - 1];
+        const sc = this.config.scoreCol;
+        const deepScoreCol = (deepest && typeof sc === 'object') ? (sc[deepest.col] || 'waarde') : (typeof sc === 'string' ? sc : 'waarde');
+        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config, scoreCol: deepScoreCol });
       }
     }
   }
