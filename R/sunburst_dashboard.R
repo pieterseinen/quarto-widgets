@@ -245,6 +245,7 @@ widget_data <- function(
     class = c("quarto_widget_data", "sunburstr_ctx", class(html)),
     widget_data_id     = id,
     widget_data_config = config,
+    widget_data_df     = data,
     sunburstr_id       = id,
     sunburstr_config   = config
   )
@@ -611,10 +612,13 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
   }
 
   list(
-    geojson        = child_geojson,
-    name_col       = name_col,
-    parent_geojson = parent_geojson,
-    parent_col     = dissolve_by
+    geojson         = child_geojson,
+    name_col        = name_col,
+    parent_geojson  = parent_geojson,
+    parent_col      = dissolve_by,
+    feature_names   = as.character(sf::st_drop_geometry(child_dat)[[name_col]]),
+    feature_parents = if (!is.null(dissolve_by) && dissolve_by %in% names(child_dat))
+                        as.character(sf::st_drop_geometry(child_dat)[[dissolve_by]]) else NULL
   )
 }
 
@@ -704,6 +708,50 @@ polygon_selector <- function(
 
   geo_name_prop   <- geo_name_prop   %||% geo$name_col
   geo_parent_prop <- geo_parent_prop %||% parent_filter
+
+  # ── Render-time validation: warn about data that does not map to polygons ──
+  .wd_df <- attr(widget_data, "widget_data_df")
+  if (!is.null(.wd_df) && !is.null(geo$feature_names) &&
+      !is.null(parent_filter) && parent_filter %in% names(.wd_df) &&
+      filter %in% names(.wd_df)) {
+    .poly_names   <- geo$feature_names
+    .poly_parents <- geo$feature_parents
+    .parent_groups <- split(.wd_df, .wd_df[[parent_filter]])
+
+    for (.pv in names(.parent_groups)) {
+      .child_vals <- unique(as.character(.parent_groups[[.pv]][[filter]]))
+      .child_vals <- .child_vals[!is.na(.child_vals) & nzchar(.child_vals)]
+
+      # Only compare against polygons belonging to THIS parent
+      .parent_polys <- if (!is.null(.poly_parents))
+        unique(.poly_names[.poly_parents == .pv])
+      else
+        unique(.poly_names)
+
+      .matched   <- .child_vals[.child_vals %in% .parent_polys]
+      .unmatched <- .child_vals[!.child_vals %in% .parent_polys]
+
+      if (length(.unmatched) > 0L) {
+        .sample <- paste(utils::head(.unmatched, 10), collapse = ", ")
+        if (length(.unmatched) > 10L)
+          .sample <- paste0(.sample, " (and ", length(.unmatched) - 10L, " more)")
+        .consequence <- if (length(.matched) == 0L)
+          "The parent polygon will appear empty (greyed out)."
+        else
+          paste0(length(.matched), " value(s) did match; the parent polygon will be shown.")
+        warning(
+          "[quartoWidgets] polygon_selector: ", length(.unmatched), " of ",
+          length(.child_vals), " '", filter, "' values in ", parent_filter,
+          " = \"", .pv, "\" do not match any polygon in the GeoJSON.\n",
+          "  Unmatched: ", .sample, "\n",
+          "  Available polygons for this ", parent_filter, ": ",
+          paste(.parent_polys, collapse = ", "), "\n",
+          "  ", .consequence,
+          call. = FALSE
+        )
+      }
+    }
+  }
 
   as_js <- function(x) {
     if (is.null(x)) "null"
