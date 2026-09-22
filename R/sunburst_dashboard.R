@@ -661,6 +661,11 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
 #' @param show_empty_geometries Logical. When \code{TRUE} (default), polygons
 #'   without corresponding data rows are shown but greyed out and
 #'   non-selectable. When \code{FALSE}, such polygons are hidden entirely.
+#' @param suppress_mismatched_polygon_warning Logical. When \code{FALSE}
+#'   (default), a warning is emitted during rendering for every parent whose
+#'   child-level data values do not match any polygon name in the GeoJSON.
+#'   Set to \code{TRUE} to silence these warnings (e.g. when the mismatch is
+#'   expected).
 #'
 #' @return An \code{htmltools::tagList} with the embedded GeoJSON script,
 #'   map container \code{<div>}, and boot script.
@@ -692,7 +697,8 @@ polygon_selector <- function(
     back_label       = "Terug naar hoger niveau",
     selected_stroke_width = 2.5,
     colors           = NULL,
-    show_empty_geometries = TRUE
+    show_empty_geometries = TRUE,
+    suppress_mismatched_polygon_warning = FALSE
 ) {
   .check_widget_data(widget_data)
   id     <- .widget_id(widget_data)
@@ -711,7 +717,8 @@ polygon_selector <- function(
 
   # ── Render-time validation: warn about data that does not map to polygons ──
   .wd_df <- attr(widget_data, "widget_data_df")
-  if (!is.null(.wd_df) && !is.null(geo$feature_names) &&
+  if (!isTRUE(suppress_mismatched_polygon_warning) &&
+      !is.null(.wd_df) && !is.null(geo$feature_names) &&
       !is.null(parent_filter) && parent_filter %in% names(.wd_df) &&
       filter %in% names(.wd_df)) {
     .poly_names   <- geo$feature_names
@@ -746,7 +753,8 @@ polygon_selector <- function(
           "  Unmatched: ", .sample, "\n",
           "  Available polygons for this ", parent_filter, ": ",
           paste(.parent_polys, collapse = ", "), "\n",
-          "  ", .consequence,
+          "  ", .consequence, "\n",
+          "  Set suppress_mismatched_polygon_warning = TRUE to silence this warning.",
           call. = FALSE
         )
       }
