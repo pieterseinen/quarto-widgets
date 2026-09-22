@@ -57,8 +57,33 @@
       this.config  = config || {};
       this.filters = config.filters || [];
       this.hierarchyCols   = config.hierarchyCols || [];
-      this.scoreCol        = config.scoreCol || 'waarde';
       this.comparisonCols  = config.comparisonCols || [];
+
+      // scoreCol may be a string (legacy) or an object mapping filter col → data col.
+      // Normalise to an object (scoreColMap) so the rest of the code has one path.
+      const raw = config.scoreCol || 'waarde';
+      if (typeof raw === 'string') {
+        const deepest = this.filters[this.filters.length - 1];
+        this.scoreColMap = deepest ? { [deepest.col]: raw } : {};
+      } else {
+        this.scoreColMap = raw;
+      }
+      // Keep a convenience alias for the deepest-level score column
+      const deepestFilter = this.filters[this.filters.length - 1];
+      this.scoreCol = deepestFilter ? (this.scoreColMap[deepestFilter.col] || 'waarde') : 'waarde';
+    }
+
+    // Return the score column to use given the currently filled filter values.
+    // Walks the filters from deepest to shallowest and returns the score column
+    // of the deepest filter that (a) is filled and (b) has an entry in scoreColMap.
+    getActiveScoreCol(filterValues) {
+      for (let i = this.filters.length - 1; i >= 0; i--) {
+        const f = this.filters[i];
+        if (filterValues[f.col] && this.scoreColMap[f.col]) {
+          return this.scoreColMap[f.col];
+        }
+      }
+      return null;
     }
 
     // Unique values for filter level i, constrained by parent selections
@@ -75,24 +100,31 @@
 
     // Build full selection object from filter values
     buildSelection(filterValues) {
-      // wijkRows = rows matching ALL filter values
+      // Determine which score column to use based on filled filters
+      const activeScoreCol = this.getActiveScoreCol(filterValues);
+      if (!activeScoreCol) return null;
+
+      // wijkRows = rows matching ALL set filter values
       const wijkRows = this.rows.filter(r =>
         Object.entries(filterValues).every(([k, v]) => !v || r[k] === v)
       );
       if (!wijkRows.length) return null;
 
-      // comparisonRows = all rows matching PARENT filter values (for comparison plot)
-      const parentValues = Object.fromEntries(
-        Object.entries(filterValues).slice(0, -1)
-      );
-      const comparisonRows = Object.keys(parentValues).length > 0
-        ? this.rows.filter(r => Object.entries(parentValues).every(([k, v]) => !v || r[k] === v))
+      // comparisonRows = rows matching all filters EXCEPT the deepest defined
+      // filter.  This ensures the comparison plot always shows peer entities
+      // at the lowest level (e.g. all wijken in the gemeente).
+      const lastFilter = this.filters[this.filters.length - 1];
+      const compFilterValues = { ...filterValues };
+      if (lastFilter) delete compFilterValues[lastFilter.col];
+      const comparisonRows = Object.keys(compFilterValues).length > 0
+        ? this.rows.filter(r => Object.entries(compFilterValues).every(([k, v]) => !v || r[k] === v))
         : this.rows;
 
-      // lookup: key → score
-      const lookup = new Map(wijkRows.map(r => [r.key, _toNumber(r[this.scoreCol])]));
+      // lookup: key → score using the active score column
+      const lookup = new Map(wijkRows.map(r => [r.key, _toNumber(r[activeScoreCol])]));
 
-      // entityId = deepest filter value (for comparison plot highlight)
+      // entityId = deepest filter value (for comparison plot highlight).
+      // When only a parent filter is set this is null → no bar highlighted.
       const deepest = this.filters[this.filters.length - 1];
       const entityId = deepest ? filterValues[deepest.col] : null;
 
@@ -174,12 +206,16 @@
 
     _tryEmit() {
       const vals = this._getValues(this.data.filters.length);
-      const allSet = this.data.filters.length > 0 &&
-                     this.data.filters.every((f, i) => !!vals[f.col]);
       // Broadcast partial state so PolygonSelector can filter polygons
       // even before all filter levels are set.
       this.eb.emit('filter-level-changed', vals);
-      if (!allSet) {
+
+      // Emit a selection as soon as the deepest filled filter has a
+      // score column defined (multi-level score_col support).  With a
+      // single score column mapped to the deepest filter this preserves
+      // the old behaviour: nothing fires until all filters are set.
+      const activeScoreCol = this.data.getActiveScoreCol(vals);
+      if (!activeScoreCol) {
         this.state.setSelection(null);
         this.eb.emit('wijk-selected', null);
         return;
@@ -987,6 +1023,17 @@
           const partial = this.eb.get('filter-level-changed') || {};
           const updated = { ...partial, [this.parentFilter]: this.selectedParentValue };
           this.eb.emit('filter-level-changed', updated);
+
+          // If the parent level has its own score column, also emit a
+          // selection so the sunburst populates immediately.
+          const activeScoreCol = this.data.getActiveScoreCol(updated);
+          if (activeScoreCol) {
+            const sel = this.data.buildSelection(updated);
+            if (sel) {
+              this.state.setSelection(sel);
+              this.eb.emit('wijk-selected', sel);
+            }
+          }
         }
 
         this._drawCurrentLayer();

@@ -140,7 +140,12 @@
 #'   list-of-lists format \code{list(list(col = "domain", label = "Domein"), ...)}.
 #' @param filters Column specification for the cascading filter dropdowns.
 #'   Accepts the same three formats as \code{hierarchy_cols}.
-#' @param score_col Name of the numeric score column (0–100). Default \code{"waarde"}.
+#' @param score_col Score column specification (0–100 numeric). Either a single
+#'   column name (e.g. \code{"waarde"}), which is used when all filters are set,
+#'   or a named character vector mapping filter column names to score columns
+#'   (e.g. \code{c(gemeente = "gemeente_gemiddelde", wijk = "waarde")}). When a
+#'   named vector is supplied the sunburst populates as soon as the deepest
+#'   filter that has a score column is selected.
 #' @param comparison_cols Column specification for reference value columns.
 #'   Accepts the same three formats as \code{hierarchy_cols}.
 #' @param categories A list of category threshold definitions. \code{NULL} uses
@@ -192,11 +197,22 @@ widget_data <- function(
   # Auto-build the hierarchy tree from data
   hierarchy <- .build_hierarchy(data, hierarchy_cols)
 
+  # Normalise score_col: a single unnamed string is mapped to the deepest
+  # filter level for backward compatibility. A named vector is kept as-is.
+  score_col_map <- score_col
+  if (is.character(score_col) && length(score_col) == 1L &&
+      (is.null(names(score_col)) || !nzchar(names(score_col)))) {
+    if (length(filters) > 0) {
+      deepest <- filters[[length(filters)]]$col
+      score_col_map <- setNames(score_col, deepest)
+    }
+  }
+
   config <- list(
     id               = id,
     filters          = filters,
     hierarchyCols    = hierarchy_cols,
-    scoreCol         = score_col,
+    scoreCol         = as.list(score_col_map),
     comparisonCols   = comparison_cols,
     categories       = cats,
     defaultSelection = default_selection
