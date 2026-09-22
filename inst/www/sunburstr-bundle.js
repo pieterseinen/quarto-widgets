@@ -728,6 +728,7 @@
       };
       this.selectedStrokeWidth = selectedStrokeWidth;
       this.showEmptyGeometries = showEmptyGeometries;
+      this._hasWarnedUnmapped = false;
 
       // Fix winding order for D3 compatibility on both geo sources
       this._fixWinding(this.geo);
@@ -855,10 +856,64 @@
       return new Set(rows.map(r => r[filterCol]).filter(Boolean));
     }
 
-    // Returns the set of parent-level values that have at least one data row
+    // Returns the set of parent-level values that have at least one child
+    // polygon with matching data.  Parents whose data rows exist but whose
+    // child-level values do not match any child polygon name in the GeoJSON
+    // are excluded (greyed out) and a console warning is emitted once so the
+    // qmd developer knows the data does not map onto polygons.
     _getParentDataValues() {
       if (!this.parentFilter) return new Set();
-      return new Set(this.data.rows.map(r => r[this.parentFilter]).filter(Boolean));
+
+      const filterCol = this.data.filters[this.filterLevel]?.col;
+
+      // If there is no child filter column, fall back to simple parent presence
+      if (!filterCol) {
+        return new Set(this.data.rows.map(r => r[this.parentFilter]).filter(Boolean));
+      }
+
+      // Collect all child polygon names from the GeoJSON
+      const childPolyNames = new Set(
+        (this.geo.features || []).map(f => f.properties[this.nameProp]).filter(Boolean)
+      );
+
+      // Group rows by parent and check whether any child value maps to a polygon
+      const parentValues = new Set();
+      const unmappedParents = [];
+      const byParent = new Map();
+
+      this.data.rows.forEach(r => {
+        const pv = r[this.parentFilter];
+        if (!pv) return;
+        if (!byParent.has(pv)) byParent.set(pv, []);
+        byParent.get(pv).push(r);
+      });
+
+      byParent.forEach((rows, parentVal) => {
+        const childVals = rows.map(r => r[filterCol]).filter(Boolean);
+        const hasMatch  = childVals.some(v => childPolyNames.has(v));
+        if (hasMatch) {
+          parentValues.add(parentVal);
+        } else if (childVals.length > 0) {
+          unmappedParents.push(parentVal);
+        }
+        // If childVals is empty the parent simply has no child data → already grey
+      });
+
+      // Warn the developer once about parents whose data doesn't map to any polygon
+      if (unmappedParents.length > 0 && !this._hasWarnedUnmapped) {
+        this._hasWarnedUnmapped = true;
+        console.warn(
+          '[quartoWidgets] polygon_selector: Data rows exist for the following ' +
+          this.parentFilter + ' values, but none of their "' + filterCol +
+          '" values match a polygon name in the GeoJSON:\n  \u2022 ' +
+          unmappedParents.join('\n  \u2022 ') +
+          '\nThese parent polygons will appear as empty (greyed out). ' +
+          'Check that the "' + filterCol + '" values in your data match the ' +
+          'polygon names in your shapefile / GeoJSON.'
+        );
+      }
+
+      return parentValues;
     }
 
     // Determine whether a feature has data, works for both parent and child level
