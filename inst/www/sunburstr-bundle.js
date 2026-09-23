@@ -328,7 +328,7 @@
   // ════════════════════════════════════════════════════════════════
   // Table helpers (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function createIndicatorTable(rows, config, { scoreCol, scoreLabel } = {}) {
+  function createIndicatorTable(rows, config, { scoreCol, scoreLabel, highlightKey } = {}) {
     const hCols    = config.hierarchyCols || [];
     const indCol   = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
     const compCols = config.comparisonCols || [];
@@ -350,8 +350,11 @@
     const table = document.createElement('table');
     table.className = 'display compact';
     table.innerHTML = `<thead><tr>${headers.map(h => '<th>' + h + '</th>').join('')}</tr></thead>
-      <tbody>${sorted.map(r => '<tr><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[resolvedScoreCol]) + '</td>'
-        + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>').join('')}</tbody>`;
+      <tbody>${sorted.map(r => {
+        const cls = highlightKey && r.key === highlightKey ? ' class="row-selected"' : '';
+        return '<tr' + cls + '><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[resolvedScoreCol]) + '</td>'
+          + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>';
+      }).join('')}</tbody>`;
     return table;
   }
 
@@ -527,16 +530,24 @@
     }
 
     _renderLevel3(node, s) {
-      // Indicator level: single row table + comparison plot
-      let tableRows = s.wijkRows.filter(r => r.key === node.data.key);
-      if (!s.allFiltersSet) tableRows = this._dedup(tableRows);
-      const row = tableRows[0];
-      if (!row) return;
+      // Indicator level: show ALL sibling indicators in the parent theme,
+      // with the selected indicator row highlighted.
+      const themeNode = node.parent;
+      const themeKeyPrefix = themeNode ? (themeNode.data.key + '|') : '';
+      let themeRows = themeKeyPrefix
+        ? s.wijkRows.filter(r => r.key && r.key.startsWith(themeKeyPrefix))
+        : s.wijkRows.filter(r => r.key === node.data.key);
+      if (!s.allFiltersSet) themeRows = this._dedup(themeRows);
+      if (!themeRows.length) return;
       if (this.table) {
-        const h = document.createElement('h3'); h.textContent = node.data.name; this.table.appendChild(h);
-        const t = createIndicatorTable(tableRows, this.config, this._tableOpts(s));
+        const label = themeNode && themeNode.parent
+          ? themeNode.parent.data.name + ' \u2192 ' + themeNode.data.name
+          : (themeNode ? themeNode.data.name : node.data.name);
+        const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
+        const opts = { ...this._tableOpts(s), highlightKey: node.data.key };
+        const t = createIndicatorTable(themeRows, this.config, opts);
         this.table.appendChild(t); initialiseTable(t);
-        this._attachRowClickHandlers(t, tableRows);
+        this._attachRowClickHandlers(t, themeRows);
       }
       if (this.plot) {
         const compRows = s.comparisonRows.filter(r => r.key === node.data.key);

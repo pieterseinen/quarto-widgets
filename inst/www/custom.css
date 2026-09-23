@@ -93,3 +93,9 @@ text {
   stroke: #1a5276;
   stroke-width: 1.5px;
 }
+
+/* ── Detail table: highlighted indicator row ──────────────────── */
+table.display tr.row-selected td {
+  background-color: #dbeafe !important;
+  font-weight: 600;
+}
