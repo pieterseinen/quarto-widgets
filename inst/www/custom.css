@@ -99,3 +99,44 @@ table.display tr.row-selected td {
   background-color: #dbeafe !important;
   font-weight: 600;
 }
+
+/* ── Radio Selector ───────────────────────────────────────── */
+.radio-selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 8px 0;
+}
+.radio-selector-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1f2937;
+  margin-right: 4px;
+  width: 100%;
+  margin-bottom: 2px;
+}
+.radio-selector-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #374151;
+  padding: 3px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.radio-selector-option:hover {
+  background-color: #f3f4f6;
+}
+.radio-selector-option:has(input:checked) {
+  background-color: #dbeafe;
+  border-color: #93c5fd;
+  font-weight: 600;
+}
+.radio-selector-option input[type="radio"] {
+  margin: 0;
+  accent-color: #2563eb;
+}

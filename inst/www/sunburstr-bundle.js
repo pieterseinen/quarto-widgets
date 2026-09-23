@@ -56,6 +56,7 @@
       this.rows    = Array.isArray(rows) ? rows : [];
       this.config  = config || {};
       this.filters = config.filters || [];
+      this.dimensionFilters = config.dimensionFilters || [];
       this.hierarchyCols   = config.hierarchyCols || [];
       this.comparisonCols  = config.comparisonCols || [];
 
@@ -98,21 +99,24 @@
         .sort((a, b) => String(a).localeCompare(String(b)));
     }
 
-    // Build full selection object from filter values
+    // Build full selection object from filter values.
+    // filterValues contains both cascading filter values AND dimension filter
+    // values (merged by the caller).  getActiveScoreCol only considers
+    // cascading filters for gating.
     buildSelection(filterValues) {
-      // Determine which score column to use based on filled filters
+      // Determine which score column to use based on cascading filters only
       const activeScoreCol = this.getActiveScoreCol(filterValues);
       if (!activeScoreCol) return null;
 
-      // wijkRows = rows matching ALL set filter values
+      // wijkRows = rows matching ALL set filter values (cascading + dimension)
       const wijkRows = this.rows.filter(r =>
         Object.entries(filterValues).every(([k, v]) => !v || r[k] === v)
       );
       if (!wijkRows.length) return null;
 
-      // comparisonRows = rows matching all filters EXCEPT the deepest defined
-      // filter.  This ensures the comparison plot always shows peer entities
-      // at the lowest level (e.g. all wijken in the gemeente).
+      // comparisonRows = rows matching all filters EXCEPT the deepest cascading
+      // filter.  Dimension filters are always kept so comparison stays within
+      // the selected dimension slice.
       const lastFilter = this.filters[this.filters.length - 1];
       const compFilterValues = { ...filterValues };
       if (lastFilter) delete compFilterValues[lastFilter.col];
@@ -217,17 +221,20 @@
       // even before all filter levels are set.
       this.eb.emit('filter-level-changed', vals);
 
-      // Emit a selection as soon as the deepest filled filter has a
-      // score column defined (multi-level score_col support).  With a
-      // single score column mapped to the deepest filter this preserves
-      // the old behaviour: nothing fires until all filters are set.
-      const activeScoreCol = this.data.getActiveScoreCol(vals);
+      // Merge dimension filter values into the selection
+      const dimVals = this.eb.get('dimension-changed') || {};
+      const merged = { ...vals, ...dimVals };
+
+      // Emit a selection as soon as the deepest filled cascading filter has
+      // a score column defined.  Dimension filters are optional modifiers
+      // and do not gate the emission.
+      const activeScoreCol = this.data.getActiveScoreCol(merged);
       if (!activeScoreCol) {
         this.state.setSelection(null);
         this.eb.emit('wijk-selected', null);
         return;
       }
-      this._emitSelection(vals);
+      this._emitSelection(merged);
     }
 
     _emitSelection(filterValues) {
@@ -1135,11 +1142,15 @@
           const updated = { ...partial, [this.parentFilter]: this.selectedParentValue };
           this.eb.emit('filter-level-changed', updated);
 
+          // Merge dimension filter values into the selection
+          const dimVals = this.eb.get('dimension-changed') || {};
+          const merged = { ...updated, ...dimVals };
+
           // If the parent level has its own score column, also emit a
           // selection so the sunburst populates immediately.
-          const activeScoreCol = this.data.getActiveScoreCol(updated);
+          const activeScoreCol = this.data.getActiveScoreCol(merged);
           if (activeScoreCol) {
-            const sel = this.data.buildSelection(updated);
+            const sel = this.data.buildSelection(merged);
             if (sel) {
               this.state.setSelection(sel);
               this.eb.emit('wijk-selected', sel);
@@ -1165,7 +1176,9 @@
       if (this.parentFilter && this.currentParentValue) {
         parentValues[this.parentFilter] = this.currentParentValue;
       }
-      const filterValues = { ...parentValues, [filterCol]: myValue };
+      // Merge dimension filter values into the selection
+      const dimVals = this.eb.get('dimension-changed') || {};
+      const filterValues = { ...parentValues, [filterCol]: myValue, ...dimVals };
       const selection = this.data.buildSelection(filterValues);
       if (!selection) { console.warn('[quartoWidgets] No data for polygon:', filterValues); return; }
       this.state.setSelection(selection);
@@ -1339,7 +1352,7 @@
     // Map filterSelectors to actual DOM elements
     const filterElements = filterSelectors.map(sel => sel && document.querySelector(sel)).filter(Boolean);
 
-    new DashboardSelectors({ filterElements, data, state, eventBus });
+    const selectors = new DashboardSelectors({ filterElements, data, state, eventBus });
 
     let sunburst = null;
     if (_elExists(sunburstSelector)) {
@@ -1360,11 +1373,34 @@
       new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config, sunburst });
     }
 
-    // Build public API — expose addPolygonSelector() so polygon selector
-    // boot scripts (emitted by polygon_selector() in R) can attach
-    // themselves to this widget set's EventBus after DOMContentLoaded.
+    // Wire dimension-changed → re-emit selection with updated dimension values.
+    // Simply re-trigger the cascading selectors' emit logic; _tryEmit already
+    // merges dimension values from the EventBus.
+    eventBus.on('dimension-changed', () => { selectors._tryEmit(); }, false);
+
     const api = {
       state, data, sunburst, gauge,
+      // Radio-button selector for an independent dimension filter
+      addRadioSelector({ containerSelector, dimension, defaultValue }) {
+        const container = document.querySelector(containerSelector);
+        if (!container) return;
+        const radios = container.querySelectorAll('input[type="radio"]');
+        const dimValues = eventBus.get('dimension-changed') || {};
+
+        // Set initial value
+        if (defaultValue) {
+          dimValues[dimension] = defaultValue;
+          eventBus.emit('dimension-changed', { ...dimValues });
+        }
+
+        radios.forEach(radio => {
+          radio.addEventListener('change', () => {
+            const current = eventBus.get('dimension-changed') || {};
+            current[dimension] = radio.value;
+            eventBus.emit('dimension-changed', { ...current });
+          });
+        });
+      },
       addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
