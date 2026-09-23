@@ -362,7 +362,7 @@
   // ════════════════════════════════════════════════════════════════
   // Comparison plot (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function drawComparisonPlot({ elementId, rows, selectedEntityId, config, scoreCol: overrideScoreCol }) {
+  function drawComparisonPlot({ elementId, rows, selectedEntityId, config, scoreCol: overrideScoreCol, plotColors: plotColorsArg }) {
     const el = document.getElementById(elementId);
     if (!el) return;
     if (!rows || !rows.length) { el.innerHTML = ''; return; }
@@ -378,11 +378,10 @@
       return deepest && sc ? (sc[deepest.col] || 'waarde') : 'waarde';
     })();
 
+    const plotColors = plotColorsArg || {};
+
     const ordered = [...rows].sort((a, b) =>
       String(a[labelCol] || '').localeCompare(String(b[labelCol] || ''))
-    );
-    const colours = ordered.map(r =>
-      labelCol && String(r[labelCol]) === String(selectedEntityId) ? '#2C7FB8' : '#CFCFCF'
     );
     const xLabels = ordered.map(r => String(r[labelCol] || '').replace(/ /g, '<br>'));
 
@@ -397,30 +396,50 @@
                          showarrow: false, xanchor: 'right', yanchor: i === 0 ? 'bottom' : 'top' });
     });
 
+    // Resolve bar/highlight colors: plotColors override > defaults
+    const barColor   = plotColors.bar      || '#CFCFCF';
+    const hiColor    = plotColors.highlight || '#2C7FB8';
+    const finalColors = ordered.map(r =>
+      labelCol && String(r[labelCol]) === String(selectedEntityId) ? hiColor : barColor
+    );
+
     Plotly.newPlot(elementId, [{
       type: 'bar', x: xLabels, y: ordered.map(r => r[scoreCol]),
-      marker: { color: colours },
+      marker: { color: finalColors },
       hovertemplate: '<b>%{x}</b><br>Score: %{y:.1f}<extra></extra>'
     }], {
       margin: { l: 60, r: 30, t: 30, b: 170 },
-      xaxis:  { tickangle: -45 },
-      yaxis:  { title: 'Score', range: [0, 100] },
+      xaxis:  { tickangle: -45, fixedrange: true },
+      yaxis:  { title: 'Score', range: [0, 100], fixedrange: true },
+      dragmode: false,
       shapes, annotations
-    }, { responsive: true, displayModeBar: false });
+    }, { responsive: true, displayModeBar: false,
+         scrollZoom: false, doubleClick: false });
   }
 
   // ════════════════════════════════════════════════════════════════
   // DetailView (config-aware, key-based filtering)
   // ════════════════════════════════════════════════════════════════
   class DetailView {
-    constructor({ state, eventBus, headerElement, tableElement, plotElement, config }) {
-      this.state  = state;
-      this.eb     = eventBus;
-      this.config = config;
-      this.header = headerElement ? document.querySelector(headerElement) : null;
-      this.table  = tableElement  ? document.querySelector(tableElement)  : null;
-      this.plot   = plotElement   ? document.querySelector(plotElement)   : null;
-      this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._clear(); });
+    constructor({ state, eventBus, headerElement, tableElement, plotElement, config, sunburst }) {
+      this.state    = state;
+      this.eb       = eventBus;
+      this.config   = config;
+      this.sunburst = sunburst;  // SunburstComponent ref for clickable-row selection
+      this.header   = headerElement ? document.querySelector(headerElement) : null;
+      this.table    = tableElement  ? document.querySelector(tableElement)  : null;
+      this.plot     = plotElement   ? document.querySelector(plotElement)   : null;
+
+      // Read optional plot customisation colours
+      this.plotColors = {};
+      if (this.plot) {
+        try { this.plotColors = readEmbeddedJson(this.plot.id + '-opts') || {}; } catch(e) { /* optional */ }
+      }
+
+      // Check if table rows should be clickable
+      this.clickableSelector = this.table && this.table.getAttribute('data-clickable-selector') === 'true';
+
+      this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._reRender(s); });
       this.eb.on('node-selected', node => this._renderNode(node));
     }
 
@@ -435,6 +454,15 @@
     _clear() {
       if (this.table) this.table.innerHTML = '';
       if (this.plot)  this.plot.innerHTML  = '';
+    }
+
+    // Re-render the previously selected node with new selection data.
+    // Called when the filter/polygon changes so the table/plot update
+    // instead of disappearing.
+    _reRender(s) {
+      const node = this.state.getNode();
+      if (!node || !s) { this._clear(); return; }
+      this._renderNode(node);
     }
 
     _renderNode(node) {
@@ -479,6 +507,7 @@
           const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h);
           const t = createIndicatorTable(grpRows, this.config, this._tableOpts(s));
           this.table.appendChild(t); initialiseTable(t);
+          this._attachRowClickHandlers(t, grpRows);
         }
       });
     }
@@ -493,6 +522,7 @@
         const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
         const t = createIndicatorTable(rows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
+        this._attachRowClickHandlers(t, rows);
       }
     }
 
@@ -506,6 +536,7 @@
         const h = document.createElement('h3'); h.textContent = node.data.name; this.table.appendChild(h);
         const t = createIndicatorTable(tableRows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
+        this._attachRowClickHandlers(t, tableRows);
       }
       if (this.plot) {
         const compRows = s.comparisonRows.filter(r => r.key === node.data.key);
@@ -513,8 +544,35 @@
         const deepest = this.config.filters[this.config.filters.length - 1];
         const sc = this.config.scoreCol;
         const deepScoreCol = (deepest && typeof sc === 'object') ? (sc[deepest.col] || 'waarde') : (typeof sc === 'string' ? sc : 'waarde');
-        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config, scoreCol: deepScoreCol });
+        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config, scoreCol: deepScoreCol, plotColors: this.plotColors });
       }
+    }
+
+    // Make table rows clickable: clicking an indicator row selects the
+    // corresponding leaf node in the sunburst, as if the user had clicked
+    // the outer ring slice directly.
+    _attachRowClickHandlers(tableEl, rows) {
+      if (!this.clickableSelector || !this.sunburst) return;
+      const self = this;
+      const hCols = this.config.hierarchyCols || [];
+      const indCol = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
+
+      const tbodyRows = tableEl.querySelectorAll('tbody tr');
+      // rows array is sorted the same way as the table rows
+      const sortedRows = [...rows].sort((a, b) => String(a[indCol] || '').localeCompare(String(b[indCol] || '')));
+      tbodyRows.forEach((tr, i) => {
+        if (i >= sortedRows.length) return;
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => {
+          const key = sortedRows[i].key;
+          // Find the matching depth-3 (indicator) node in the hierarchy
+          const node = self.sunburst.root.descendants().find(n => n.depth === 3 && n.data.key === key);
+          if (node) {
+            self.state.setNode(node);
+            self.eb.emit('node-selected', node);
+          }
+        });
+      });
     }
   }
 
@@ -1288,7 +1346,7 @@
     }
 
     if (_elExists(headerSelector) || _elExists(tableSelector) || _elExists(plotSelector)) {
-      new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config });
+      new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config, sunburst });
     }
 
     // Build public API — expose addPolygonSelector() so polygon selector

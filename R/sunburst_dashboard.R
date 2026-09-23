@@ -423,19 +423,33 @@ sunburst_header <- widget_header
 #' Places the \code{<div>} for the DataTables detail table.
 #'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
-#' @return An \code{htmltools::tag} (\code{<div id="<id>-table-output">}).
+#' @param clickable_selector Logical. When \code{TRUE}, indicator rows in the
+#'   table become clickable.  Clicking a row selects the corresponding indicator
+#'   in the sunburst chart and shows the comparison plot, just like clicking an
+#'   outer ring slice.  Default \code{FALSE}.
+#' @return An \code{htmltools::tagList}.
 #'
 #' @examples
 #' \dontrun{
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_table(wd)
+#' widget_table(wd, clickable_selector = TRUE)
 #' }
 #'
 #' @export
-widget_table <- function(widget_data) {
+widget_table <- function(widget_data, clickable_selector = FALSE) {
   .check_widget_data(widget_data)
-  htmltools::div(id = paste0(.widget_id(widget_data), "-table-output"))
+  id <- .widget_id(widget_data)
+  div_id <- paste0(id, "-table-output")
+
+  tags <- list(
+    htmltools::div(
+      id = div_id,
+      `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL
+    )
+  )
+  do.call(htmltools::tagList, tags)
 }
 
 sunburst_table <- widget_table
@@ -445,19 +459,38 @@ sunburst_table <- widget_table
 #' Places the \code{<div>} for the Plotly comparison bar chart.
 #'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
-#' @return An \code{htmltools::tag} (\code{<div id="<id>-plot-output">}).
+#' @param colors Optional named list of hex colour strings for the bar chart.
+#'   Supported keys: \code{bar} (default bar colour, default \code{"#CFCFCF"}),
+#'   \code{highlight} (selected entity bar colour, default \code{"#2C7FB8"}).
+#' @return An \code{htmltools::tagList}.
 #'
 #' @examples
 #' \dontrun{
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_plot(wd)
+#' widget_plot(wd, colors = list(bar = "#bdbdbd", highlight = "#e6550d"))
 #' }
 #'
 #' @export
-widget_plot <- function(widget_data) {
+widget_plot <- function(widget_data, colors = NULL) {
   .check_widget_data(widget_data)
-  htmltools::div(id = paste0(.widget_id(widget_data), "-plot-output"))
+  id <- .widget_id(widget_data)
+  div_id <- paste0(id, "-plot-output")
+
+  tags <- list()
+  if (!is.null(colors) && is.list(colors)) {
+    opts_json <- as.character(jsonlite::toJSON(colors, auto_unbox = TRUE, null = "null"))
+    tags <- c(tags, list(
+      htmltools::tags$script(
+        id = paste0(div_id, "-opts"),
+        type = "application/json",
+        htmltools::HTML(opts_json)
+      )
+    ))
+  }
+  tags <- c(tags, list(htmltools::div(id = div_id)))
+  do.call(htmltools::tagList, tags)
 }
 
 sunburst_plot <- widget_plot
