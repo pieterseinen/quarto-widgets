@@ -491,6 +491,27 @@
       return rows.filter(r => { if (seen.has(r.key)) return false; seen.add(r.key); return true; });
     }
 
+    // Ensure every indicator from the hierarchy tree is represented in the
+    // rows array.  For indicators that have no data row (e.g. because a
+    // dimension filter excluded them), a placeholder row is created with
+    // the key and indicator name but null values for score columns.
+    _ensureAllIndicators(rows, hierarchyNode) {
+      if (!this.sunburst || !hierarchyNode) return rows;
+      const hCols = this.config.hierarchyCols || [];
+      const indCol = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
+      const existingKeys = new Set(rows.map(r => r.key));
+      // Collect all depth-3 descendants of the given node
+      const leafNodes = hierarchyNode.descendants().filter(n => n.depth === 3);
+      const placeholders = [];
+      leafNodes.forEach(n => {
+        if (!existingKeys.has(n.data.key)) {
+          const placeholder = { key: n.data.key, [indCol]: n.data.name };
+          placeholders.push(placeholder);
+        }
+      });
+      return placeholders.length ? [...rows, ...placeholders] : rows;
+    }
+
     // Table options derived from the current selection
     _tableOpts(s) {
       return {
@@ -504,6 +525,7 @@
       const keyPrefix = node.data.key + '|';
       let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
       if (!s.allFiltersSet) rows = this._dedup(rows);
+      rows = this._ensureAllIndicators(rows, node);
       // Group by level-2 key part
       const groups = new Map();
       rows.forEach(r => {
@@ -527,6 +549,7 @@
       const keyPrefix = node.data.key + '|';
       let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
       if (!s.allFiltersSet) rows = this._dedup(rows);
+      rows = this._ensureAllIndicators(rows, node);
       if (this.table) {
         const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name;
         const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
@@ -545,7 +568,7 @@
         ? s.wijkRows.filter(r => r.key && r.key.startsWith(themeKeyPrefix))
         : s.wijkRows.filter(r => r.key === node.data.key);
       if (!s.allFiltersSet) themeRows = this._dedup(themeRows);
-      if (!themeRows.length) return;
+      themeRows = this._ensureAllIndicators(themeRows, themeNode || node);
       if (this.table) {
         const label = themeNode && themeNode.parent
           ? themeNode.parent.data.name + ' \u2192 ' + themeNode.data.name
