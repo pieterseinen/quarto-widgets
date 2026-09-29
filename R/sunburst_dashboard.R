@@ -1042,13 +1042,14 @@ radio_selector <- function(
   # Build radio button HTML
   radios <- lapply(vals, function(v) {
     input_id <- paste0(div_id, "-", gsub("[^a-zA-Z0-9]", "-", v))
-    checked <- if (!is.null(default) && v == default) " checked" else ""
+    is_default <- !is.null(default) && v == default
     htmltools::tags$label(
       class = "radio-selector-option",
       htmltools::tags$input(
         type = "radio", name = div_id, value = v,
         `data-dimension` = dimension,
-        if (nzchar(checked)) htmltools::HTML("checked") else NULL
+        # NA produces the bare boolean attribute; NULL omits it entirely
+        checked = if (is_default) NA else NULL
       ),
       htmltools::tags$span(v)
     )
