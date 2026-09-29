@@ -1434,9 +1434,34 @@
     }
 
     // Wire dimension-changed → re-emit selection with updated dimension values.
-    // Simply re-trigger the cascading selectors' emit logic; _tryEmit already
-    // merges dimension values from the EventBus.
-    eventBus.on('dimension-changed', () => { selectors._tryEmit(); }, false);
+    // We preserve the current cascading filter state (which may have been set
+    // by a polygon click rather than a dropdown) and only swap in the new
+    // dimension values.  Falling back to _tryEmit only when there is no
+    // existing selection to preserve.
+    eventBus.on('dimension-changed', () => {
+      const currentSel = state.getSelection();
+      const dimVals    = eventBus.get('dimension-changed') || {};
+
+      if (currentSel && currentSel.filterValues) {
+        // Extract only the cascading filter values from the current selection
+        const cascading = {};
+        data.filters.forEach(f => {
+          if (currentSel.filterValues[f.col]) cascading[f.col] = currentSel.filterValues[f.col];
+        });
+        const merged = { ...cascading, ...dimVals };
+        const activeScoreCol = data.getActiveScoreCol(merged);
+        if (activeScoreCol) {
+          const sel = data.buildSelection(merged);
+          if (sel) {
+            state.setSelection(sel);
+            eventBus.emit('wijk-selected', sel);
+            return;
+          }
+        }
+      }
+      // Fallback: no existing selection — read from dropdowns
+      selectors._tryEmit();
+    }, false);
 
     const api = {
       state, data, sunburst, gauge,

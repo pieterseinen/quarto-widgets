@@ -983,8 +983,9 @@ sunburst_polygon_selector <- polygon_selector
 #'   columns specified in \code{dimension_filters}).
 #' @param label Optional label shown above the radio group. Defaults to the
 #'   label defined in \code{dimension_filters}.
-#' @param default Optional default value. When \code{NULL} (default), no
-#'   radio button is pre-selected and the dimension is unfiltered.
+#' @param default Optional default value. When \code{NULL} (default), the
+#'   first value is automatically selected so the dimension is never
+#'   unfiltered.
 #'
 #' @return An \code{htmltools::tagList} with the radio-button container
 #'   and a boot script that attaches it to the widget EventBus.
@@ -1027,6 +1028,9 @@ radio_selector <- function(
   # Collect unique values from the data
   vals <- sort(unique(as.character(df[[dimension]])))
   vals <- vals[!is.na(vals) & nzchar(vals)]
+
+  # Auto-select the first value when no explicit default is provided
+  if (is.null(default) && length(vals) > 0L) default <- vals[1L]
 
   div_id <- paste0(id, "-radio-", dimension)
 
