@@ -797,6 +797,10 @@ polygon_selector <- function(
   if (isTRUE(layered) && is.null(parent_filter))
     stop("layered = TRUE requires parent_filter to be set.", call. = FALSE)
 
+  # default_level is only meaningful in layered mode; force 'child' otherwise
+  # to prevent _getParentDataValues() from returning an empty set.
+  if (!isTRUE(layered)) default_level <- "child"
+
   geo_name_prop   <- geo_name_prop   %||% geo$name_col
   geo_parent_prop <- geo_parent_prop %||% parent_filter
 

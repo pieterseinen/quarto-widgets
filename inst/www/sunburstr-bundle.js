@@ -886,11 +886,18 @@
       this.state          = state;
       this.eb             = eventBus;
 
-      // Determine starting level
-      if (defaultLevel === 'child' || defaultLevel === 'parent') {
+      // Determine starting level.
+      // defaultLevel is only meaningful in layered mode (start at parent or
+      // child view).  In non-layered mode we always start at 'child' because
+      // there is no parent level — using 'parent' would cause
+      // _getParentDataValues() to return an empty set when parentFilter is
+      // not set, greying out every polygon.
+      if (!this.layered) {
+        this.currentLevel = 'child';
+      } else if (defaultLevel === 'child' || defaultLevel === 'parent') {
         this.currentLevel = defaultLevel;
       } else {
-        this.currentLevel = this.layered ? 'parent' : 'child';
+        this.currentLevel = 'parent';
       }
       this.currentParentValue = null;
       this.selectedParentValue = null;
