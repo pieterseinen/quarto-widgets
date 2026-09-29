@@ -612,6 +612,31 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
     stop("Package 'sf' is required. Install with: install.packages('sf')", call. = FALSE)
 
   dat  <- sf::st_read(path, quiet = TRUE)
+
+  # ── Validate that requested columns exist in the shapefile ──
+  geom_col   <- attr(dat, "sf_column") %||% "geometry"
+  avail_cols <- setdiff(names(dat), geom_col)
+
+  if (!name_col %in% avail_cols)
+    stop("[geo_prepare] name_col = \"", name_col, "\" not found in shapefile.\n",
+         "  Available columns: ", paste(avail_cols, collapse = ", "),
+         call. = FALSE)
+
+  if (!is.null(extra_cols)) {
+    missing_extra <- extra_cols[!extra_cols %in% avail_cols]
+    if (length(missing_extra) > 0L)
+      stop("[geo_prepare] extra_cols not found in shapefile: ",
+           paste0('"', missing_extra, '"', collapse = ", "), "\n",
+           "  Available columns: ", paste(avail_cols, collapse = ", "),
+           call. = FALSE)
+  }
+
+  if (!is.null(dissolve_by) && !dissolve_by %in% avail_cols)
+    stop("[geo_prepare] dissolve_by = \"", dissolve_by,
+         "\" not found in shapefile.\n",
+         "  Available columns: ", paste(avail_cols, collapse = ", "),
+         call. = FALSE)
+
   keep <- unique(c(name_col, extra_cols, dissolve_by))
   keep <- keep[keep %in% names(dat)]
   dat  <- dat[, keep, drop = FALSE]
@@ -677,7 +702,8 @@ geo_prepare <- function(path, name_col, extra_cols = NULL, dissolve_by = NULL,
     parent_col      = dissolve_by,
     feature_names   = as.character(sf::st_drop_geometry(child_dat)[[name_col]]),
     feature_parents = if (!is.null(dissolve_by) && dissolve_by %in% names(child_dat))
-                        as.character(sf::st_drop_geometry(child_dat)[[dissolve_by]]) else NULL
+                        as.character(sf::st_drop_geometry(child_dat)[[dissolve_by]]) else NULL,
+    geo_properties  = keep
   )
 }
 
@@ -773,6 +799,34 @@ polygon_selector <- function(
 
   geo_name_prop   <- geo_name_prop   %||% geo$name_col
   geo_parent_prop <- geo_parent_prop %||% parent_filter
+
+  # ── Validate that geo object has usable feature names ──
+  if (is.null(geo$feature_names) || length(geo$feature_names) == 0L)
+    stop("[polygon_selector] The geo object has no feature names (feature_names is empty).\n",
+         "  This usually means geo_prepare() was called with a name_col that did not\n",
+         "  exist in the shapefile, so no properties were retained in the GeoJSON.\n",
+         "  Re-run geo_prepare() with a valid name_col.",
+         call. = FALSE)
+
+  # ── Validate geo_name_prop matches a GeoJSON property ──
+  if (!is.null(geo$geo_properties) && !geo_name_prop %in% geo$geo_properties)
+    stop("[polygon_selector] geo_name_prop = \"", geo_name_prop,
+         "\" is not a property in the GeoJSON produced by geo_prepare().\n",
+         "  Available GeoJSON properties: ",
+         paste(geo$geo_properties, collapse = ", "), "\n",
+         "  The geo object was prepared with name_col = \"", geo$name_col, "\".",
+         call. = FALSE)
+
+  # ── Validate geo_parent_prop matches a GeoJSON property (when parent_filter is set) ──
+  if (!is.null(parent_filter) && !is.null(geo_parent_prop) &&
+      !is.null(geo$geo_properties) && !geo_parent_prop %in% geo$geo_properties)
+    stop("[polygon_selector] geo_parent_prop = \"", geo_parent_prop,
+         "\" is not a property in the GeoJSON produced by geo_prepare().\n",
+         "  Available GeoJSON properties: ",
+         paste(geo$geo_properties, collapse = ", "), "\n",
+         "  Did you forget to include \"", geo_parent_prop,
+         "\" in extra_cols when calling geo_prepare()?",
+         call. = FALSE)
 
   # ── Render-time validation: warn about data that does not map to polygons ──
   .wd_df <- attr(widget_data, "widget_data_df")

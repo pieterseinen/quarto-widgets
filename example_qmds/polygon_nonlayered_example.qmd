@@ -1,0 +1,142 @@
+---
+title: "quartoWidgets — Non-Layered Polygon Selector (Land van Cuijk)"
+subtitle: "Single-level polygon map → sunburst chart (no gemeente drill-down)"
+format:
+  html:
+    embed-resources: true
+    page-layout: full
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup, message=FALSE}
+library(quartoWidgets)
+library(sf)
+library(here)
+
+# ═══════════════════════════════════════════════════════════════════════
+# 1.  Load shapefile and prepare GeoJSON
+#     The shapefile has a single attribute column: "Gebdsnm" (56 areas).
+#     No gemeente column exists — so we skip dissolve_by/extra_cols.
+# ═══════════════════════════════════════════════════════════════════════
+shp_path <- here("custom-shapefile/lvc_ingedeelde_gebieden.shp")
+
+gebied_geo <- geo_prepare(
+  path         = shp_path,
+  name_col     = "Gebdsnm",
+  simplify_tol = NULL
+)
+
+# Quick sanity check — feature_names should be populated
+stopifnot(length(gebied_geo$feature_names) > 0)
+cat("Loaded", length(gebied_geo$feature_names), "polygons\n")
+```
+
+```{r synthetic-data}
+# ═══════════════════════════════════════════════════════════════════════
+# 2.  Synthetic indicator data
+#     The "gebied" column values MUST match the Gebdsnm values exactly
+#     so that polygon clicks correlate with chart data.
+# ═══════════════════════════════════════════════════════════════════════
+set.seed(42)
+
+gebieden <- gebied_geo$feature_names   # from the shapefile
+
+domains    <- c("Lichamelijke gezondheid", "Mentaal Welbevinden")
+themes     <- list(
+  "Lichamelijke gezondheid" = c("Beweging",  "Voeding"),
+  "Mentaal Welbevinden"     = c("Gevoelens", "Hinder")
+)
+indicators <- list(
+  Beweging  = c("Sport",   "Bewegen"),
+  Voeding   = c("Groente", "Gewicht"),
+  Gevoelens = c("Geluk",   "Stress"),
+  Hinder    = c("Geluid",  "Overlast")
+)
+
+rows <- list()
+for (gb in gebieden) {
+  for (domain in domains)
+    for (theme in themes[[domain]])
+      for (indicator in indicators[[theme]]) {
+        rows[[length(rows) + 1L]] <- data.frame(
+          gebied    = gb,
+          domain    = domain,
+          theme     = theme,
+          indicator = indicator,
+          waarde    = sample(10:95, 1),
+          stringsAsFactors = FALSE
+        )
+      }
+}
+gebied_data <- do.call(rbind, rows)
+
+# Reference average across all gebieden per indicator
+ind_key <- paste(gebied_data$domain, gebied_data$theme,
+                 gebied_data$indicator, sep = "|")
+gebied_data$totaal_gemiddelde <- ave(
+  gebied_data$waarde, ind_key, FUN = mean)
+```
+
+```{r widget-data}
+# ═══════════════════════════════════════════════════════════════════════
+# 3.  Initialise interactive widget data
+#     Single filter level: "gebied".  No gemeente cascade.
+# ═══════════════════════════════════════════════════════════════════════
+wd <- widget_data(
+  data            = gebied_data,
+  hierarchy_cols  = c(domain    = "Domein",
+                      theme     = "Thema",
+                      indicator = "Indicator"),
+  filters         = c(gebied = "Gebied"),
+  score_col       = "waarde",
+  comparison_cols = c(totaal_gemiddelde = "Land van Cuijk"),
+  id              = "lvc"
+)
+wd
+```
+
+---
+
+## Selectie
+
+Klik op een gebied in de kaart om de gezondheidsdata te bekijken.
+
+::: {.columns}
+
+::: {.column width="40%"}
+
+**Gebied (klik op de kaart)**
+
+```{r polygon-selector}
+polygon_selector(
+  wd,
+  geo              = gebied_geo,
+  filter           = "gebied",
+  geo_name_prop    = "Gebdsnm",
+  layered          = FALSE,
+  zoom_to_visible  = TRUE,
+  selected_stroke_width = 3
+)
+```
+
+:::
+
+::: {.column width="25%"}
+```{r sunburst}
+#| layout-nrow: 2
+sunburst_chart(wd)
+widget_gauge(wd)
+```
+:::
+
+::: {.column width="35%"}
+```{r detail-panel}
+widget_header(wd)
+widget_table(wd)
+widget_plot(wd)
+```
+:::
+
+:::
