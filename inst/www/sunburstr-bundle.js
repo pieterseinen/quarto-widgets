@@ -870,7 +870,8 @@
                   layered = false, defaultLevel = null, zoomToVisible = true,
                   backLabel = 'Terug naar hoger niveau',
                   data, state, eventBus,
-                  colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true }) {
+                  colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true,
+                  enableZoom = false }) {
       this.el             = document.querySelector(container);
       this.geo            = geoData;
       this.parentGeo      = parentGeoData;
@@ -912,6 +913,7 @@
       };
       this.selectedStrokeWidth = selectedStrokeWidth;
       this.showEmptyGeometries = showEmptyGeometries;
+      this.enableZoom = !!enableZoom;
 
       // Fix winding order for D3 compatibility on both geo sources
       this._fixWinding(this.geo);
@@ -978,6 +980,23 @@
         .attr('width', '100%').style('display', 'block');
 
       this.mapLayer = this.svg.append('g').attr('class', 'polygon-selector-layer');
+
+      // Optional scroll-zoom via d3.zoom()
+      if (this.enableZoom) {
+        this.zoom = d3.zoom()
+          .scaleExtent([0.5, 20])
+          .on('zoom', (event) => {
+            this.mapLayer.attr('transform', event.transform);
+            // Scale stroke widths inversely so borders stay crisp
+            const k = event.transform.k;
+            this.mapLayer.selectAll('path')
+              .attr('stroke-width', function() {
+                const sel = d3.select(this).attr('data-selected') === 'true';
+                return (sel ? self.selectedStrokeWidth : 0.8) / k;
+              });
+          });
+        this.svg.call(this.zoom);
+      }
       this.parentFeatures = this.layered ? this._buildParentFeatures() : [];
       this._drawCurrentLayer();
     }
@@ -1231,7 +1250,11 @@
         maxY = Math.max(maxY, box.y + box.height);
       });
       if (!isFinite(minX) || maxX <= minX || maxY <= minY) {
-        this.mapLayer.attr('transform', null);
+        if (this.enableZoom && this.zoom) {
+          this.svg.transition().duration(300).call(this.zoom.transform, d3.zoomIdentity);
+        } else {
+          this.mapLayer.attr('transform', null);
+        }
         return;
       }
       const pad = 16;
@@ -1240,9 +1263,16 @@
       const scale = Math.min((this.W - 2 * pad) / width, (this.H - 2 * pad) / height, 8);
       const tx = (this.W - scale * (minX + maxX)) / 2;
       const ty = (this.H - scale * (minY + maxY)) / 2;
-      this.mapLayer
-        .transition().duration(300)
-        .attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+      if (this.enableZoom && this.zoom) {
+        // Drive the transform through the zoom behavior so its internal
+        // state stays in sync with the visual transform.
+        const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
+        this.svg.transition().duration(300).call(this.zoom.transform, t);
+      } else {
+        this.mapLayer
+          .transition().duration(300)
+          .attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+      }
     }
 
     _updateVisibility(vals) {
@@ -1431,7 +1461,7 @@
           });
         });
       },
-      addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
+      addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries, enableZoom }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
         const parentGeoData = parentGeoScriptId ? readEmbeddedJson(parentGeoScriptId) : null;
@@ -1439,7 +1469,7 @@
           container: containerSelector, geoData, parentGeoData, filterLevel,
           nameProp, parentFilter, parentProp, showWhenFilter,
           layered, defaultLevel, zoomToVisible, backLabel, data, state, eventBus,
-          colors: colors || {}, selectedStrokeWidth, showEmptyGeometries
+          colors: colors || {}, selectedStrokeWidth, showEmptyGeometries, enableZoom
         });
       }
     };

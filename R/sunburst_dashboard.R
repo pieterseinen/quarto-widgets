@@ -783,6 +783,7 @@ polygon_selector <- function(
     selected_stroke_width = 2.5,
     colors           = NULL,
     show_empty_geometries = TRUE,
+    enable_zoom      = FALSE,
     suppress_mismatched_polygon_warning = FALSE
 ) {
   .check_widget_data(widget_data)
@@ -919,7 +920,8 @@ polygon_selector <- function(
       '    backLabel:            %s,',
       '    selectedStrokeWidth:  %s,',
       '    colors:               %s,',
-      '    showEmptyGeometries:  %s',
+      '    showEmptyGeometries:  %s,',
+      '    enableZoom:           %s',
       '  });',
       '});'
     ),
@@ -934,7 +936,8 @@ polygon_selector <- function(
     as_js(back_label),
     as.character(selected_stroke_width),
     colors_js,
-    if (isTRUE(show_empty_geometries)) "true" else "false"
+    if (isTRUE(show_empty_geometries)) "true" else "false",
+    if (isTRUE(enable_zoom)) "true" else "false"
   )
 
   tags <- list(
