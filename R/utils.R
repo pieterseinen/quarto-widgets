@@ -33,12 +33,12 @@
     stop("Column specification must be a named character vector or a list of lists.",
          call. = FALSE)
 
-  nms <- names(x) %||% character(length(x))
+  input_names <- names(x) %||% character(length(x))
   lapply(seq_along(x), function(i) {
-    nm  <- nms[i]
-    val <- x[[i]]
-    col   <- if (nzchar(nm)) nm  else val
-    label <- if (nzchar(nm)) val else gsub("_", " ", val)
+    name_at_i  <- input_names[i]
+    value_at_i <- x[[i]]
+    col   <- if (nzchar(name_at_i)) name_at_i  else value_at_i
+    label <- if (nzchar(name_at_i)) value_at_i else gsub("_", " ", value_at_i)
     list(col = col, label = label)
   })
 }
@@ -48,7 +48,7 @@
   col_names <- vapply(hierarchy_cols, `[[`, "", "col")
   data$key  <- do.call(
     paste,
-    c(lapply(col_names, function(cn) as.character(data[[cn]])), list(sep = "|"))
+    c(lapply(col_names, function(col_name) as.character(data[[col_name]])), list(sep = "|"))
   )
   data
 }
@@ -59,17 +59,17 @@
     return(list(name = "", key = "root", children = list()))
 
   .build_level <- function(subset, level, parent_key) {
-    col  <- hierarchy_cols[[level]]$col
-    vals <- sort(unique(as.character(subset[[col]])))
-    vals <- vals[!is.na(vals) & nzchar(vals)]
-    lapply(vals, function(v) {
-      key  <- if (nzchar(parent_key)) paste(parent_key, v, sep = "|") else v
-      sub2 <- subset[as.character(subset[[col]]) == v, , drop = FALSE]
+    col_name      <- hierarchy_cols[[level]]$col
+    unique_values <- sort(unique(as.character(subset[[col_name]])))
+    unique_values <- unique_values[!is.na(unique_values) & nzchar(unique_values)]
+    lapply(unique_values, function(value) {
+      key             <- if (nzchar(parent_key)) paste(parent_key, value, sep = "|") else value
+      filtered_subset <- subset[as.character(subset[[col_name]]) == value, , drop = FALSE]
       if (level == length(hierarchy_cols)) {
-        list(name = v, key = key, value = 1L)
+        list(name = value, key = key, value = 1L)
       } else {
-        list(name = v, key = key,
-             children = .build_level(sub2, level + 1L, key))
+        list(name = value, key = key,
+             children = .build_level(filtered_subset, level + 1L, key))
       }
     })
   }
