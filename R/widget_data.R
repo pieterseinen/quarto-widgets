@@ -118,24 +118,21 @@ widget_data <- function(
     "[]"
   }
 
-  boot_script <- sprintf(
-    paste0(
-      'document.addEventListener("DOMContentLoaded", function() {',
-      '  window.QuartoWidgets.mountWidgets({',
-      '    configScriptId:    "%s-config",',
-      '    hierarchyScriptId: "%s-hierarchy-data",',
-      '    wijkScriptId:      "%s-wijk-data",',
-      '    filterSelectors:   %s,',
-      '    sunburstSelector:  "#%s-sunburst",',
-      '    gaugeSelector:     "#%s-gauge",',
-      '    headerSelector:    "#%s-detail-header",',
-      '    tableSelector:     "#%s-table-output",',
-      '    plotSelector:      "#%s-plot-output"',
-      '  });',
-      '});'
+  boot_script <- .js_on_ready(paste0(
+    "  window.QuartoWidgets.mountWidgets(",
+    .js_object(
+      configScriptId    = .as_js(paste0(id, "-config")),
+      hierarchyScriptId = .as_js(paste0(id, "-hierarchy-data")),
+      wijkScriptId      = .as_js(paste0(id, "-wijk-data")),
+      filterSelectors   = filter_selectors_js,
+      sunburstSelector  = .as_js(paste0("#", id, "-sunburst")),
+      gaugeSelector     = .as_js(paste0("#", id, "-gauge")),
+      headerSelector    = .as_js(paste0("#", id, "-detail-header")),
+      tableSelector     = .as_js(paste0("#", id, "-table-output")),
+      plotSelector      = .as_js(paste0("#", id, "-plot-output"))
     ),
-    id, id, id, filter_selectors_js, id, id, id, id, id
-  )
+    ");"
+  ))
 
   html <- htmltools::tagList(
     .quarto_widgets_dependencies(),

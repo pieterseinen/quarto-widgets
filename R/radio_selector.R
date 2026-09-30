@@ -79,19 +79,16 @@ radio_selector <- function(
     )
   })
 
-  boot <- sprintf(
-    paste0(
-      'document.addEventListener("DOMContentLoaded", function() {',
-      '  var db = window.__quartoWidgets && window.__quartoWidgets["%s"];',
-      '  if (db) db.addRadioSelector({',
-      '    containerSelector: "%s",',
-      '    dimension:         %s,',
-      '    defaultValue:      %s',
-      '  });',
-      '});'
+  boot <- .js_on_ready(paste0(
+    '  var db = window.__quartoWidgets && window.__quartoWidgets["', id, '"];\n',
+    "  if (db) db.addRadioSelector(",
+    .js_object(
+      containerSelector = .as_js(paste0("#", div_id)),
+      dimension         = .as_js(dimension),
+      defaultValue      = .as_js(default)
     ),
-    id, paste0("#", div_id), .as_js(dimension), .as_js(default)
-  )
+    ");"
+  ))
 
   htmltools::tagList(
     htmltools::div(

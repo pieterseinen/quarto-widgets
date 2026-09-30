@@ -178,51 +178,34 @@ polygon_selector <- function(
     "null"
   }
 
-  geo_script_id <- paste0(id, "-polygon-geo-",      filter_idx)
-  div_id        <- paste0(id, "-polygon-selector-", filter_idx)
-
-  # Embed parent-level dissolved GeoJSON if available
-  has_parent_geo <- !is.null(geo$parent_geojson)
+  geo_script_id        <- paste0(id, "-polygon-geo-",       filter_idx)
+  div_id               <- paste0(id, "-polygon-selector-",  filter_idx)
+  has_parent_geo       <- !is.null(geo$parent_geojson)
   parent_geo_script_id <- paste0(id, "-polygon-parent-geo-", filter_idx)
 
-  boot <- sprintf(
-    paste0(
-      'document.addEventListener("DOMContentLoaded", function() {',
-      '  var db = window.__quartoWidgets && window.__quartoWidgets["%s"];',
-      '  if (db) db.addPolygonSelector({',
-      '    containerSelector:    "%s",',
-      '    geoScriptId:          "%s",',
-      '    parentGeoScriptId:    %s,',
-      '    filterLevel:          %d,',
-      '    nameProp:             %s,',
-      '    parentFilter:         %s,',
-      '    parentProp:           %s,',
-      '    showWhenFilter:       %s,',
-      '    layered:              %s,',
-      '    defaultLevel:         %s,',
-      '    zoomToVisible:        %s,',
-      '    backLabel:            %s,',
-      '    selectedStrokeWidth:  %s,',
-      '    colors:               %s,',
-      '    showEmptyGeometries:  %s,',
-      '    enableZoom:           %s',
-      '  });',
-      '});'
+  boot <- .js_on_ready(paste0(
+    '  var db = window.__quartoWidgets && window.__quartoWidgets["', id, '"];\n',
+    "  if (db) db.addPolygonSelector(",
+    .js_object(
+      containerSelector    = .as_js(paste0("#", div_id)),
+      geoScriptId          = .as_js(geo_script_id),
+      parentGeoScriptId    = if (has_parent_geo) .as_js(parent_geo_script_id) else "null",
+      filterLevel          = as.character(filter_idx),
+      nameProp             = .as_js(geo_name_prop),
+      parentFilter         = .as_js(parent_filter),
+      parentProp           = .as_js(geo_parent_prop),
+      showWhenFilter       = .as_js(show_when_filter),
+      layered              = if (isTRUE(layered)) "true" else "false",
+      defaultLevel         = .as_js(default_level),
+      zoomToVisible        = if (isTRUE(zoom_to_visible)) "true" else "false",
+      backLabel            = .as_js(back_label),
+      selectedStrokeWidth  = as.character(selected_stroke_width),
+      colors               = colors_js,
+      showEmptyGeometries  = if (isTRUE(show_empty_geometries)) "true" else "false",
+      enableZoom           = if (isTRUE(enable_zoom)) "true" else "false"
     ),
-    id, paste0("#", div_id), geo_script_id,
-    if (has_parent_geo) .as_js(parent_geo_script_id) else "null",
-    filter_idx,
-    .as_js(geo_name_prop), .as_js(parent_filter), .as_js(geo_parent_prop),
-    .as_js(show_when_filter),
-    if (isTRUE(layered)) "true" else "false",
-    .as_js(default_level),
-    if (isTRUE(zoom_to_visible)) "true" else "false",
-    .as_js(back_label),
-    as.character(selected_stroke_width),
-    colors_js,
-    if (isTRUE(show_empty_geometries)) "true" else "false",
-    if (isTRUE(enable_zoom)) "true" else "false"
-  )
+    ");"
+  ))
 
   tags <- list(
     htmltools::tags$script(

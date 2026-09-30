@@ -97,11 +97,32 @@
 
 .check_ctx <- .check_widget_data
 
-# Convert an R value to a JavaScript literal string for use in sprintf() boot scripts.
+# Convert an R value to a JavaScript literal string for use in boot scripts.
 # NULL becomes "null"; everything else is JSON-serialised with auto_unbox.
 .as_js <- function(x) {
   if (is.null(x)) "null"
   else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
+}
+
+# Build a JS object literal from named arguments.
+# Each name becomes a JS property key; each value must already be a JS literal string.
+# Example: .js_object(foo = '"bar"', count = "42") => '{\n    foo: "bar",\n    count: 42\n  }'
+.js_object <- function(...) {
+  props <- list(...)
+  lines <- vapply(names(props), function(key) {
+    paste0("    ", key, ": ", props[[key]])
+  }, "")
+  paste0("{\n", paste(lines, collapse = ",\n"), "\n  }")
+}
+
+# Wrap a JS call inside a DOMContentLoaded listener.
+# js_body is the function call(s) to execute on load.
+.js_on_ready <- function(js_body) {
+  paste0(
+    'document.addEventListener("DOMContentLoaded", function() {\n',
+    js_body,
+    '\n});'
+  )
 }
 
 .quarto_widgets_dependencies <- function() {
