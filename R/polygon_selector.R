@@ -123,44 +123,44 @@ polygon_selector <- function(
          call. = FALSE)
 
   # ── Render-time validation: warn about data that does not map to polygons ──
-  .wd_df <- attr(widget_data, "widget_data_df")
+  widget_df <- attr(widget_data, "widget_data_df")
   if (!isTRUE(suppress_mismatched_polygon_warning) &&
-      !is.null(.wd_df) && !is.null(geo$feature_names) &&
-      !is.null(parent_filter) && parent_filter %in% names(.wd_df) &&
-      filter %in% names(.wd_df)) {
-    .poly_names   <- geo$feature_names
-    .poly_parents <- geo$feature_parents
-    .parent_groups <- split(.wd_df, .wd_df[[parent_filter]])
+      !is.null(widget_df) && !is.null(geo$feature_names) &&
+      !is.null(parent_filter) && parent_filter %in% names(widget_df) &&
+      filter %in% names(widget_df)) {
+    polygon_names   <- geo$feature_names
+    polygon_parents <- geo$feature_parents
+    parent_groups   <- split(widget_df, widget_df[[parent_filter]])
 
-    for (.pv in names(.parent_groups)) {
-      .child_vals <- unique(as.character(.parent_groups[[.pv]][[filter]]))
-      .child_vals <- .child_vals[!is.na(.child_vals) & nzchar(.child_vals)]
+    for (parent_value in names(parent_groups)) {
+      child_values <- unique(as.character(parent_groups[[parent_value]][[filter]]))
+      child_values <- child_values[!is.na(child_values) & nzchar(child_values)]
 
       # Only compare against polygons belonging to THIS parent
-      .parent_polys <- if (!is.null(.poly_parents))
-        unique(.poly_names[.poly_parents == .pv])
+      parent_polygons <- if (!is.null(polygon_parents))
+        unique(polygon_names[polygon_parents == parent_value])
       else
-        unique(.poly_names)
+        unique(polygon_names)
 
-      .matched   <- .child_vals[.child_vals %in% .parent_polys]
-      .unmatched <- .child_vals[!.child_vals %in% .parent_polys]
+      matched_values   <- child_values[child_values %in% parent_polygons]
+      unmatched_values <- child_values[!child_values %in% parent_polygons]
 
-      if (length(.unmatched) > 0L) {
-        .sample <- paste(utils::head(.unmatched, 10), collapse = ", ")
-        if (length(.unmatched) > 10L)
-          .sample <- paste0(.sample, " (and ", length(.unmatched) - 10L, " more)")
-        .consequence <- if (length(.matched) == 0L)
+      if (length(unmatched_values) > 0L) {
+        sample_text <- paste(utils::head(unmatched_values, 10), collapse = ", ")
+        if (length(unmatched_values) > 10L)
+          sample_text <- paste0(sample_text, " (and ", length(unmatched_values) - 10L, " more)")
+        consequence_msg <- if (length(matched_values) == 0L)
           "The parent polygon will appear empty (greyed out)."
         else
-          paste0(length(.matched), " value(s) did match; the parent polygon will be shown.")
+          paste0(length(matched_values), " value(s) did match; the parent polygon will be shown.")
         warning(
-          "[quartoWidgets] polygon_selector: ", length(.unmatched), " of ",
-          length(.child_vals), " '", filter, "' values in ", parent_filter,
-          " = \"", .pv, "\" do not match any polygon in the GeoJSON.\n",
-          "  Unmatched: ", .sample, "\n",
+          "[quartoWidgets] polygon_selector: ", length(unmatched_values), " of ",
+          length(child_values), " '", filter, "' values in ", parent_filter,
+          " = \"", parent_value, "\" do not match any polygon in the GeoJSON.\n",
+          "  Unmatched: ", sample_text, "\n",
           "  Available polygons for this ", parent_filter, ": ",
-          paste(.parent_polys, collapse = ", "), "\n",
-          "  ", .consequence, "\n",
+          paste(parent_polygons, collapse = ", "), "\n",
+          "  ", consequence_msg, "\n",
           "  Set suppress_mismatched_polygon_warning = TRUE to silence this warning.",
           call. = FALSE
         )
