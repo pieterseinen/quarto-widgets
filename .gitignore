@@ -5,3 +5,7 @@
 .positai
 quarto-widgets.Rproj
 .Rbuildignore
+lvc_ingedeelde_gebieden.dbf
+lvc_ingedeelde_gebieden.prj
+lvc_ingedeelde_gebieden.shp
+lvc_ingedeelde_gebieden.shx
