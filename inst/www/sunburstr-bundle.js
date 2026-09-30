@@ -56,9 +56,35 @@
       this.rows    = Array.isArray(rows) ? rows : [];
       this.config  = config || {};
       this.filters = config.filters || [];
+      this.dimensionFilters = config.dimensionFilters || [];
       this.hierarchyCols   = config.hierarchyCols || [];
-      this.scoreCol        = config.scoreCol || 'waarde';
       this.comparisonCols  = config.comparisonCols || [];
+
+      // scoreCol may be a string (legacy) or an object mapping filter col → data col.
+      // Normalise to an object (scoreColMap) so the rest of the code has one path.
+      const raw = config.scoreCol || 'waarde';
+      if (typeof raw === 'string') {
+        const deepest = this.filters[this.filters.length - 1];
+        this.scoreColMap = deepest ? { [deepest.col]: raw } : {};
+      } else {
+        this.scoreColMap = raw;
+      }
+      // Keep a convenience alias for the deepest-level score column
+      const deepestFilter = this.filters[this.filters.length - 1];
+      this.scoreCol = deepestFilter ? (this.scoreColMap[deepestFilter.col] || 'waarde') : 'waarde';
+    }
+
+    // Return the score column to use given the currently filled filter values.
+    // Walks the filters from deepest to shallowest and returns the score column
+    // of the deepest filter that (a) is filled and (b) has an entry in scoreColMap.
+    getActiveScoreCol(filterValues) {
+      for (let i = this.filters.length - 1; i >= 0; i--) {
+        const f = this.filters[i];
+        if (filterValues[f.col] && this.scoreColMap[f.col]) {
+          return this.scoreColMap[f.col];
+        }
+      }
+      return null;
     }
 
     // Unique values for filter level i, constrained by parent selections
@@ -73,30 +99,47 @@
         .sort((a, b) => String(a).localeCompare(String(b)));
     }
 
-    // Build full selection object from filter values
+    // Build full selection object from filter values.
+    // filterValues contains both cascading filter values AND dimension filter
+    // values (merged by the caller).  getActiveScoreCol only considers
+    // cascading filters for gating.
     buildSelection(filterValues) {
-      // wijkRows = rows matching ALL filter values
+      // Determine which score column to use based on cascading filters only
+      const activeScoreCol = this.getActiveScoreCol(filterValues);
+      if (!activeScoreCol) return null;
+
+      // wijkRows = rows matching ALL set filter values (cascading + dimension)
       const wijkRows = this.rows.filter(r =>
         Object.entries(filterValues).every(([k, v]) => !v || r[k] === v)
       );
       if (!wijkRows.length) return null;
 
-      // comparisonRows = all rows matching PARENT filter values (for comparison plot)
-      const parentValues = Object.fromEntries(
-        Object.entries(filterValues).slice(0, -1)
-      );
-      const comparisonRows = Object.keys(parentValues).length > 0
-        ? this.rows.filter(r => Object.entries(parentValues).every(([k, v]) => !v || r[k] === v))
+      // comparisonRows = rows matching all filters EXCEPT the deepest cascading
+      // filter.  Dimension filters are always kept so comparison stays within
+      // the selected dimension slice.
+      const lastFilter = this.filters[this.filters.length - 1];
+      const compFilterValues = { ...filterValues };
+      if (lastFilter) delete compFilterValues[lastFilter.col];
+      const comparisonRows = Object.keys(compFilterValues).length > 0
+        ? this.rows.filter(r => Object.entries(compFilterValues).every(([k, v]) => !v || r[k] === v))
         : this.rows;
 
-      // lookup: key → score
-      const lookup = new Map(wijkRows.map(r => [r.key, _toNumber(r[this.scoreCol])]));
+      // lookup: key → score using the active score column
+      const lookup = new Map(wijkRows.map(r => [r.key, _toNumber(r[activeScoreCol])]));
 
-      // entityId = deepest filter value (for comparison plot highlight)
+      // entityId = deepest filter value (for comparison plot highlight).
+      // When only a parent filter is set this is null → no bar highlighted.
       const deepest = this.filters[this.filters.length - 1];
       const entityId = deepest ? filterValues[deepest.col] : null;
 
-      return { filterValues, wijkRows, comparisonRows, lookup, entityId };
+      // Metadata for downstream consumers (table, plot)
+      const activeFilterIdx = this.filters.findIndex(f => f.col in this.scoreColMap && filterValues[f.col]);
+      const deepestFilledFilter = [...this.filters].reverse().find(f => filterValues[f.col] && this.scoreColMap[f.col]);
+      const activeFilterLabel = deepestFilledFilter ? deepestFilledFilter.label : null;
+      const allFiltersSet = this.filters.length > 0 && this.filters.every(f => !!filterValues[f.col]);
+
+      return { filterValues, wijkRows, comparisonRows, lookup, entityId,
+               activeScoreCol, activeFilterLabel, allFiltersSet };
     }
   }
 
@@ -174,17 +217,24 @@
 
     _tryEmit() {
       const vals = this._getValues(this.data.filters.length);
-      const allSet = this.data.filters.length > 0 &&
-                     this.data.filters.every((f, i) => !!vals[f.col]);
       // Broadcast partial state so PolygonSelector can filter polygons
       // even before all filter levels are set.
       this.eb.emit('filter-level-changed', vals);
-      if (!allSet) {
+
+      // Merge dimension filter values into the selection
+      const dimVals = this.eb.get('dimension-changed') || {};
+      const merged = { ...vals, ...dimVals };
+
+      // Emit a selection as soon as the deepest filled cascading filter has
+      // a score column defined.  Dimension filters are optional modifiers
+      // and do not gate the emission.
+      const activeScoreCol = this.data.getActiveScoreCol(merged);
+      if (!activeScoreCol) {
         this.state.setSelection(null);
         this.eb.emit('wijk-selected', null);
         return;
       }
-      this._emitSelection(vals);
+      this._emitSelection(merged);
     }
 
     _emitSelection(filterValues) {
@@ -285,23 +335,33 @@
   // ════════════════════════════════════════════════════════════════
   // Table helpers (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function createIndicatorTable(rows, config) {
-    const scoreCol = config.scoreCol || 'waarde';
+  function createIndicatorTable(rows, config, { scoreCol, scoreLabel, highlightKey } = {}) {
     const hCols    = config.hierarchyCols || [];
     const indCol   = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
     const compCols = config.comparisonCols || [];
+    // Resolve score column: explicit override > deepest filter mapping > fallback
+    const resolvedScoreCol = scoreCol || (function() {
+      const sc = config.scoreCol;
+      if (typeof sc === 'string') return sc;
+      const filters = config.filters || [];
+      const deepest = filters[filters.length - 1];
+      return deepest && sc ? (sc[deepest.col] || 'waarde') : 'waarde';
+    })();
 
     const headers = [
       hCols.length ? hCols[hCols.length - 1].label : 'Indicator',
-      'Score',
+      scoreLabel || 'Score',
       ...compCols.map(c => c.label)
     ];
     const sorted = [...rows].sort((a, b) => String(a[indCol] || '').localeCompare(String(b[indCol] || '')));
     const table = document.createElement('table');
     table.className = 'display compact';
     table.innerHTML = `<thead><tr>${headers.map(h => '<th>' + h + '</th>').join('')}</tr></thead>
-      <tbody>${sorted.map(r => '<tr><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[scoreCol]) + '</td>'
-        + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>').join('')}</tbody>`;
+      <tbody>${sorted.map(r => {
+        const cls = highlightKey && r.key === highlightKey ? ' class="row-selected"' : '';
+        return '<tr' + cls + '><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[resolvedScoreCol]) + '</td>'
+          + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>';
+      }).join('')}</tbody>`;
     return table;
   }
 
@@ -312,7 +372,7 @@
   // ════════════════════════════════════════════════════════════════
   // Comparison plot (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function drawComparisonPlot({ elementId, rows, selectedEntityId, config }) {
+  function drawComparisonPlot({ elementId, rows, selectedEntityId, config, scoreCol: overrideScoreCol, plotColors: plotColorsArg }) {
     const el = document.getElementById(elementId);
     if (!el) return;
     if (!rows || !rows.length) { el.innerHTML = ''; return; }
@@ -320,14 +380,18 @@
     const filters  = config.filters || [];
     const deepest  = filters[filters.length - 1];
     const labelCol = deepest ? deepest.col : null;
-    const scoreCol = config.scoreCol || 'waarde';
     const compCols = config.comparisonCols || [];
+    // Always use the deepest filter's score column for comparison bars
+    const scoreCol = overrideScoreCol || (function() {
+      const sc = config.scoreCol;
+      if (typeof sc === 'string') return sc;
+      return deepest && sc ? (sc[deepest.col] || 'waarde') : 'waarde';
+    })();
+
+    const plotColors = plotColorsArg || {};
 
     const ordered = [...rows].sort((a, b) =>
       String(a[labelCol] || '').localeCompare(String(b[labelCol] || ''))
-    );
-    const colours = ordered.map(r =>
-      labelCol && String(r[labelCol]) === String(selectedEntityId) ? '#2C7FB8' : '#CFCFCF'
     );
     const xLabels = ordered.map(r => String(r[labelCol] || '').replace(/ /g, '<br>'));
 
@@ -342,30 +406,50 @@
                          showarrow: false, xanchor: 'right', yanchor: i === 0 ? 'bottom' : 'top' });
     });
 
+    // Resolve bar/highlight colors: plotColors override > defaults
+    const barColor   = plotColors.bar      || '#CFCFCF';
+    const hiColor    = plotColors.highlight || '#2C7FB8';
+    const finalColors = ordered.map(r =>
+      labelCol && String(r[labelCol]) === String(selectedEntityId) ? hiColor : barColor
+    );
+
     Plotly.newPlot(elementId, [{
       type: 'bar', x: xLabels, y: ordered.map(r => r[scoreCol]),
-      marker: { color: colours },
+      marker: { color: finalColors },
       hovertemplate: '<b>%{x}</b><br>Score: %{y:.1f}<extra></extra>'
     }], {
       margin: { l: 60, r: 30, t: 30, b: 170 },
-      xaxis:  { tickangle: -45 },
-      yaxis:  { title: 'Score', range: [0, 100] },
+      xaxis:  { tickangle: -45, fixedrange: true },
+      yaxis:  { title: 'Score', range: [0, 100], fixedrange: true },
+      dragmode: false,
       shapes, annotations
-    }, { responsive: true, displayModeBar: false });
+    }, { responsive: true, displayModeBar: false,
+         scrollZoom: false, doubleClick: false });
   }
 
   // ════════════════════════════════════════════════════════════════
   // DetailView (config-aware, key-based filtering)
   // ════════════════════════════════════════════════════════════════
   class DetailView {
-    constructor({ state, eventBus, headerElement, tableElement, plotElement, config }) {
-      this.state  = state;
-      this.eb     = eventBus;
-      this.config = config;
-      this.header = headerElement ? document.querySelector(headerElement) : null;
-      this.table  = tableElement  ? document.querySelector(tableElement)  : null;
-      this.plot   = plotElement   ? document.querySelector(plotElement)   : null;
-      this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._clear(); });
+    constructor({ state, eventBus, headerElement, tableElement, plotElement, config, sunburst }) {
+      this.state    = state;
+      this.eb       = eventBus;
+      this.config   = config;
+      this.sunburst = sunburst;  // SunburstComponent ref for clickable-row selection
+      this.header   = headerElement ? document.querySelector(headerElement) : null;
+      this.table    = tableElement  ? document.querySelector(tableElement)  : null;
+      this.plot     = plotElement   ? document.querySelector(plotElement)   : null;
+
+      // Read optional plot customisation colours
+      this.plotColors = {};
+      if (this.plot) {
+        try { this.plotColors = readEmbeddedJson(this.plot.id + '-opts') || {}; } catch(e) { /* optional */ }
+      }
+
+      // Check if table rows should be clickable
+      this.clickableSelector = this.table && this.table.getAttribute('data-clickable-selector') === 'true';
+
+      this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._reRender(s); });
       this.eb.on('node-selected', node => this._renderNode(node));
     }
 
@@ -382,6 +466,15 @@
       if (this.plot)  this.plot.innerHTML  = '';
     }
 
+    // Re-render the previously selected node with new selection data.
+    // Called when the filter/polygon changes so the table/plot update
+    // instead of disappearing.
+    _reRender(s) {
+      const node = this.state.getNode();
+      if (!node || !s) { this._clear(); return; }
+      this._renderNode(node);
+    }
+
     _renderNode(node) {
       const s = this.state.getSelection();
       this._clear();
@@ -391,10 +484,48 @@
       else if (node.depth === 3) this._renderLevel3(node, s);
     }
 
+    // Deduplicate rows by key (one row per indicator).  Needed when only a
+    // parent filter is selected and wijkRows contains one row per child entity.
+    _dedup(rows) {
+      const seen = new Set();
+      return rows.filter(r => { if (seen.has(r.key)) return false; seen.add(r.key); return true; });
+    }
+
+    // Ensure every indicator from the hierarchy tree is represented in the
+    // rows array.  For indicators that have no data row (e.g. because a
+    // dimension filter excluded them), a placeholder row is created with
+    // the key and indicator name but null values for score columns.
+    _ensureAllIndicators(rows, hierarchyNode) {
+      if (!this.sunburst || !hierarchyNode) return rows;
+      const hCols = this.config.hierarchyCols || [];
+      const indCol = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
+      const existingKeys = new Set(rows.map(r => r.key));
+      // Collect all depth-3 descendants of the given node
+      const leafNodes = hierarchyNode.descendants().filter(n => n.depth === 3);
+      const placeholders = [];
+      leafNodes.forEach(n => {
+        if (!existingKeys.has(n.data.key)) {
+          const placeholder = { key: n.data.key, [indCol]: n.data.name };
+          placeholders.push(placeholder);
+        }
+      });
+      return placeholders.length ? [...rows, ...placeholders] : rows;
+    }
+
+    // Table options derived from the current selection
+    _tableOpts(s) {
+      return {
+        scoreCol:   s.activeScoreCol,
+        scoreLabel: s.activeFilterLabel ? 'Score ' + s.activeFilterLabel : 'Score'
+      };
+    }
+
     _renderLevel1(node, s) {
       // Domain level: show rows grouped by level-2 (theme)
       const keyPrefix = node.data.key + '|';
-      const rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      if (!s.allFiltersSet) rows = this._dedup(rows);
+      rows = this._ensureAllIndicators(rows, node);
       // Group by level-2 key part
       const groups = new Map();
       rows.forEach(r => {
@@ -406,8 +537,9 @@
       groups.forEach((grpRows, l2Name) => {
         if (this.table) {
           const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h);
-          const t = createIndicatorTable(grpRows, this.config);
+          const t = createIndicatorTable(grpRows, this.config, this._tableOpts(s));
           this.table.appendChild(t); initialiseTable(t);
+          this._attachRowClickHandlers(t, grpRows);
         }
       });
     }
@@ -415,28 +547,73 @@
     _renderLevel2(node, s) {
       // Theme level: show all indicators under this theme
       const keyPrefix = node.data.key + '|';
-      const rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      let rows = s.wijkRows.filter(r => r.key && r.key.startsWith(keyPrefix));
+      if (!s.allFiltersSet) rows = this._dedup(rows);
+      rows = this._ensureAllIndicators(rows, node);
       if (this.table) {
         const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name;
         const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
-        const t = createIndicatorTable(rows, this.config);
+        const t = createIndicatorTable(rows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
+        this._attachRowClickHandlers(t, rows);
       }
     }
 
     _renderLevel3(node, s) {
-      // Indicator level: single row table + comparison plot
-      const row = s.wijkRows.find(r => r.key === node.data.key);
-      if (!row) return;
+      // Indicator level: show ALL sibling indicators in the parent theme,
+      // with the selected indicator row highlighted.
+      const themeNode = node.parent;
+      const themeKeyPrefix = themeNode ? (themeNode.data.key + '|') : '';
+      let themeRows = themeKeyPrefix
+        ? s.wijkRows.filter(r => r.key && r.key.startsWith(themeKeyPrefix))
+        : s.wijkRows.filter(r => r.key === node.data.key);
+      if (!s.allFiltersSet) themeRows = this._dedup(themeRows);
+      themeRows = this._ensureAllIndicators(themeRows, themeNode || node);
       if (this.table) {
-        const h = document.createElement('h3'); h.textContent = node.data.name; this.table.appendChild(h);
-        const t = createIndicatorTable([row], this.config);
+        const label = themeNode && themeNode.parent
+          ? themeNode.parent.data.name + ' \u2192 ' + themeNode.data.name
+          : (themeNode ? themeNode.data.name : node.data.name);
+        const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
+        const opts = { ...this._tableOpts(s), highlightKey: node.data.key };
+        const t = createIndicatorTable(themeRows, this.config, opts);
         this.table.appendChild(t); initialiseTable(t);
+        this._attachRowClickHandlers(t, themeRows);
       }
       if (this.plot) {
         const compRows = s.comparisonRows.filter(r => r.key === node.data.key);
-        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config });
+        // Comparison plot always uses the deepest-level score column
+        const deepest = this.config.filters[this.config.filters.length - 1];
+        const sc = this.config.scoreCol;
+        const deepScoreCol = (deepest && typeof sc === 'object') ? (sc[deepest.col] || 'waarde') : (typeof sc === 'string' ? sc : 'waarde');
+        drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config, scoreCol: deepScoreCol, plotColors: this.plotColors });
       }
+    }
+
+    // Make table rows clickable: clicking an indicator row selects the
+    // corresponding leaf node in the sunburst, as if the user had clicked
+    // the outer ring slice directly.
+    _attachRowClickHandlers(tableEl, rows) {
+      if (!this.clickableSelector || !this.sunburst) return;
+      const self = this;
+      const hCols = this.config.hierarchyCols || [];
+      const indCol = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
+
+      const tbodyRows = tableEl.querySelectorAll('tbody tr');
+      // rows array is sorted the same way as the table rows
+      const sortedRows = [...rows].sort((a, b) => String(a[indCol] || '').localeCompare(String(b[indCol] || '')));
+      tbodyRows.forEach((tr, i) => {
+        if (i >= sortedRows.length) return;
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => {
+          const key = sortedRows[i].key;
+          // Find the matching depth-3 (indicator) node in the hierarchy
+          const node = self.sunburst.root.descendants().find(n => n.depth === 3 && n.data.key === key);
+          if (node) {
+            self.state.setNode(node);
+            self.eb.emit('node-selected', node);
+          }
+        });
+      });
     }
   }
 
@@ -693,7 +870,8 @@
                   layered = false, defaultLevel = null, zoomToVisible = true,
                   backLabel = 'Terug naar hoger niveau',
                   data, state, eventBus,
-                  colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true }) {
+                  colors = {}, selectedStrokeWidth = 2.5, showEmptyGeometries = true,
+                  enableZoom = false }) {
       this.el             = document.querySelector(container);
       this.geo            = geoData;
       this.parentGeo      = parentGeoData;
@@ -709,11 +887,18 @@
       this.state          = state;
       this.eb             = eventBus;
 
-      // Determine starting level
-      if (defaultLevel === 'child' || defaultLevel === 'parent') {
+      // Determine starting level.
+      // defaultLevel is only meaningful in layered mode (start at parent or
+      // child view).  In non-layered mode we always start at 'child' because
+      // there is no parent level — using 'parent' would cause
+      // _getParentDataValues() to return an empty set when parentFilter is
+      // not set, greying out every polygon.
+      if (!this.layered) {
+        this.currentLevel = 'child';
+      } else if (defaultLevel === 'child' || defaultLevel === 'parent') {
         this.currentLevel = defaultLevel;
       } else {
-        this.currentLevel = this.layered ? 'parent' : 'child';
+        this.currentLevel = 'parent';
       }
       this.currentParentValue = null;
       this.selectedParentValue = null;
@@ -728,6 +913,7 @@
       };
       this.selectedStrokeWidth = selectedStrokeWidth;
       this.showEmptyGeometries = showEmptyGeometries;
+      this.enableZoom = !!enableZoom;
 
       // Fix winding order for D3 compatibility on both geo sources
       this._fixWinding(this.geo);
@@ -794,6 +980,23 @@
         .attr('width', '100%').style('display', 'block');
 
       this.mapLayer = this.svg.append('g').attr('class', 'polygon-selector-layer');
+
+      // Optional scroll-zoom via d3.zoom()
+      if (this.enableZoom) {
+        this.zoom = d3.zoom()
+          .scaleExtent([0.5, 20])
+          .on('zoom', (event) => {
+            this.mapLayer.attr('transform', event.transform);
+            // Scale stroke widths inversely so borders stay crisp
+            const k = event.transform.k;
+            this.mapLayer.selectAll('path')
+              .attr('stroke-width', function() {
+                const sel = d3.select(this).attr('data-selected') === 'true';
+                return (sel ? self.selectedStrokeWidth : 0.8) / k;
+              });
+          });
+        this.svg.call(this.zoom);
+      }
       this.parentFeatures = this.layered ? this._buildParentFeatures() : [];
       this._drawCurrentLayer();
     }
@@ -855,10 +1058,55 @@
       return new Set(rows.map(r => r[filterCol]).filter(Boolean));
     }
 
-    // Returns the set of parent-level values that have at least one data row
+    // Returns the set of parent-level values that have at least one child
+    // polygon with matching data.  Only child polygons belonging to the same
+    // parent (via parentProp) are considered, so a wijk name from one
+    // gemeente cannot accidentally match a polygon in another gemeente.
     _getParentDataValues() {
       if (!this.parentFilter) return new Set();
-      return new Set(this.data.rows.map(r => r[this.parentFilter]).filter(Boolean));
+
+      const filterCol = this.data.filters[this.filterLevel]?.col;
+
+      // If there is no child filter column, fall back to simple parent presence
+      if (!filterCol) {
+        return new Set(this.data.rows.map(r => r[this.parentFilter]).filter(Boolean));
+      }
+
+      // Build map: parentValue → Set of child polygon names within that parent
+      const polysByParent = new Map();
+      (this.geo.features || []).forEach(f => {
+        const childName  = f.properties[this.nameProp];
+        const parentName = this.parentProp ? f.properties[this.parentProp] : null;
+        if (!childName) return;
+        const key = parentName || '__all__';
+        if (!polysByParent.has(key)) polysByParent.set(key, new Set());
+        polysByParent.get(key).add(childName);
+      });
+
+      // Group data rows by parent and check whether any child value maps
+      // to a polygon that belongs to the SAME parent
+      const parentValues = new Set();
+      const byParent = new Map();
+
+      this.data.rows.forEach(r => {
+        const pv = r[this.parentFilter];
+        if (!pv) return;
+        if (!byParent.has(pv)) byParent.set(pv, []);
+        byParent.get(pv).push(r);
+      });
+
+      byParent.forEach((rows, parentVal) => {
+        const childVals   = rows.map(r => r[filterCol]).filter(Boolean);
+        const parentPolys = polysByParent.get(parentVal)
+                         || polysByParent.get('__all__')
+                         || new Set();
+        const hasMatch = childVals.some(v => parentPolys.has(v));
+        if (hasMatch) {
+          parentValues.add(parentVal);
+        }
+      });
+
+      return parentValues;
     }
 
     // Determine whether a feature has data, works for both parent and child level
@@ -942,6 +1190,21 @@
           const partial = this.eb.get('filter-level-changed') || {};
           const updated = { ...partial, [this.parentFilter]: this.selectedParentValue };
           this.eb.emit('filter-level-changed', updated);
+
+          // Merge dimension filter values into the selection
+          const dimVals = this.eb.get('dimension-changed') || {};
+          const merged = { ...updated, ...dimVals };
+
+          // If the parent level has its own score column, also emit a
+          // selection so the sunburst populates immediately.
+          const activeScoreCol = this.data.getActiveScoreCol(merged);
+          if (activeScoreCol) {
+            const sel = this.data.buildSelection(merged);
+            if (sel) {
+              this.state.setSelection(sel);
+              this.eb.emit('wijk-selected', sel);
+            }
+          }
         }
 
         this._drawCurrentLayer();
@@ -962,7 +1225,9 @@
       if (this.parentFilter && this.currentParentValue) {
         parentValues[this.parentFilter] = this.currentParentValue;
       }
-      const filterValues = { ...parentValues, [filterCol]: myValue };
+      // Merge dimension filter values into the selection
+      const dimVals = this.eb.get('dimension-changed') || {};
+      const filterValues = { ...parentValues, [filterCol]: myValue, ...dimVals };
       const selection = this.data.buildSelection(filterValues);
       if (!selection) { console.warn('[quartoWidgets] No data for polygon:', filterValues); return; }
       this.state.setSelection(selection);
@@ -985,7 +1250,11 @@
         maxY = Math.max(maxY, box.y + box.height);
       });
       if (!isFinite(minX) || maxX <= minX || maxY <= minY) {
-        this.mapLayer.attr('transform', null);
+        if (this.enableZoom && this.zoom) {
+          this.svg.transition().duration(300).call(this.zoom.transform, d3.zoomIdentity);
+        } else {
+          this.mapLayer.attr('transform', null);
+        }
         return;
       }
       const pad = 16;
@@ -994,9 +1263,16 @@
       const scale = Math.min((this.W - 2 * pad) / width, (this.H - 2 * pad) / height, 8);
       const tx = (this.W - scale * (minX + maxX)) / 2;
       const ty = (this.H - scale * (minY + maxY)) / 2;
-      this.mapLayer
-        .transition().duration(300)
-        .attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+      if (this.enableZoom && this.zoom) {
+        // Drive the transform through the zoom behavior so its internal
+        // state stays in sync with the visual transform.
+        const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
+        this.svg.transition().duration(300).call(this.zoom.transform, t);
+      } else {
+        this.mapLayer
+          .transition().duration(300)
+          .attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+      }
     }
 
     _updateVisibility(vals) {
@@ -1136,7 +1412,7 @@
     // Map filterSelectors to actual DOM elements
     const filterElements = filterSelectors.map(sel => sel && document.querySelector(sel)).filter(Boolean);
 
-    new DashboardSelectors({ filterElements, data, state, eventBus });
+    const selectors = new DashboardSelectors({ filterElements, data, state, eventBus });
 
     let sunburst = null;
     if (_elExists(sunburstSelector)) {
@@ -1154,15 +1430,63 @@
     }
 
     if (_elExists(headerSelector) || _elExists(tableSelector) || _elExists(plotSelector)) {
-      new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config });
+      new DetailView({ state, eventBus, headerElement: headerSelector, tableElement: tableSelector, plotElement: plotSelector, config, sunburst });
     }
 
-    // Build public API — expose addPolygonSelector() so polygon selector
-    // boot scripts (emitted by polygon_selector() in R) can attach
-    // themselves to this widget set's EventBus after DOMContentLoaded.
+    // Wire dimension-changed → re-emit selection with updated dimension values.
+    // We preserve the current cascading filter state (which may have been set
+    // by a polygon click rather than a dropdown) and only swap in the new
+    // dimension values.  Falling back to _tryEmit only when there is no
+    // existing selection to preserve.
+    eventBus.on('dimension-changed', () => {
+      const currentSel = state.getSelection();
+      const dimVals    = eventBus.get('dimension-changed') || {};
+
+      if (currentSel && currentSel.filterValues) {
+        // Extract only the cascading filter values from the current selection
+        const cascading = {};
+        data.filters.forEach(f => {
+          if (currentSel.filterValues[f.col]) cascading[f.col] = currentSel.filterValues[f.col];
+        });
+        const merged = { ...cascading, ...dimVals };
+        const activeScoreCol = data.getActiveScoreCol(merged);
+        if (activeScoreCol) {
+          const sel = data.buildSelection(merged);
+          if (sel) {
+            state.setSelection(sel);
+            eventBus.emit('wijk-selected', sel);
+            return;
+          }
+        }
+      }
+      // Fallback: no existing selection — read from dropdowns
+      selectors._tryEmit();
+    }, false);
+
     const api = {
       state, data, sunburst, gauge,
-      addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries }) {
+      // Radio-button selector for an independent dimension filter
+      addRadioSelector({ containerSelector, dimension, defaultValue }) {
+        const container = document.querySelector(containerSelector);
+        if (!container) return;
+        const radios = container.querySelectorAll('input[type="radio"]');
+        const dimValues = eventBus.get('dimension-changed') || {};
+
+        // Set initial value
+        if (defaultValue) {
+          dimValues[dimension] = defaultValue;
+          eventBus.emit('dimension-changed', { ...dimValues });
+        }
+
+        radios.forEach(radio => {
+          radio.addEventListener('change', () => {
+            const current = eventBus.get('dimension-changed') || {};
+            current[dimension] = radio.value;
+            eventBus.emit('dimension-changed', { ...current });
+          });
+        });
+      },
+      addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries, enableZoom }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
         const parentGeoData = parentGeoScriptId ? readEmbeddedJson(parentGeoScriptId) : null;
@@ -1170,7 +1494,7 @@
           container: containerSelector, geoData, parentGeoData, filterLevel,
           nameProp, parentFilter, parentProp, showWhenFilter,
           layered, defaultLevel, zoomToVisible, backLabel, data, state, eventBus,
-          colors: colors || {}, selectedStrokeWidth, showEmptyGeometries
+          colors: colors || {}, selectedStrokeWidth, showEmptyGeometries, enableZoom
         });
       }
     };
