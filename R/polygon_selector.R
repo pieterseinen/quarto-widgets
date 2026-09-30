@@ -168,15 +168,10 @@ polygon_selector <- function(
     }
   }
 
-  as_js <- function(x) {
-    if (is.null(x)) "null"
-    else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
-  }
-
   # Build colors JS object (only emit non-NULL overrides)
   colors_js <- if (!is.null(colors) && is.list(colors)) {
     parts <- vapply(names(colors), function(k) {
-      paste0(k, ": ", as_js(colors[[k]]))
+      paste0(k, ": ", .as_js(colors[[k]]))
     }, "")
     paste0("{", paste(parts, collapse = ", "), "}")
   } else {
@@ -215,14 +210,14 @@ polygon_selector <- function(
       '});'
     ),
     id, paste0("#", div_id), geo_script_id,
-    if (has_parent_geo) as_js(parent_geo_script_id) else "null",
+    if (has_parent_geo) .as_js(parent_geo_script_id) else "null",
     filter_idx,
-    as_js(geo_name_prop), as_js(parent_filter), as_js(geo_parent_prop),
-    as_js(show_when_filter),
+    .as_js(geo_name_prop), .as_js(parent_filter), .as_js(geo_parent_prop),
+    .as_js(show_when_filter),
     if (isTRUE(layered)) "true" else "false",
-    as_js(default_level),
+    .as_js(default_level),
     if (isTRUE(zoom_to_visible)) "true" else "false",
-    as_js(back_label),
+    .as_js(back_label),
     as.character(selected_stroke_width),
     colors_js,
     if (isTRUE(show_empty_geometries)) "true" else "false",

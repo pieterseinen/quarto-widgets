@@ -63,11 +63,6 @@ radio_selector <- function(
 
   div_id <- paste0(id, "-radio-", dimension)
 
-  as_js <- function(x) {
-    if (is.null(x)) "null"
-    else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
-  }
-
   # Build radio button HTML
   radios <- lapply(vals, function(v) {
     input_id <- paste0(div_id, "-", gsub("[^a-zA-Z0-9]", "-", v))
@@ -95,7 +90,7 @@ radio_selector <- function(
       '  });',
       '});'
     ),
-    id, paste0("#", div_id), as_js(dimension), as_js(default)
+    id, paste0("#", div_id), .as_js(dimension), .as_js(default)
   )
 
   htmltools::tagList(

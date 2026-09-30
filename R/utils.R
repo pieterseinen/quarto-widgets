@@ -97,6 +97,13 @@
 
 .check_ctx <- .check_widget_data
 
+# Convert an R value to a JavaScript literal string for use in sprintf() boot scripts.
+# NULL becomes "null"; everything else is JSON-serialised with auto_unbox.
+.as_js <- function(x) {
+  if (is.null(x)) "null"
+  else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
+}
+
 .quarto_widgets_dependencies <- function() {
   htmltools::tagList(
     htmltools::singleton(htmltools::tags$script(src = "https://d3js.org/d3.v7.min.js")),
