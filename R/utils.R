@@ -16,6 +16,8 @@
 # Internal helpers
 # ══════════════════════════════════════════════════════════════════════════
 
+# Null-coalescing helper: return `b` only when `a` is NULL.
+# Handy for supporting optional arguments and legacy attributes.
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 # Normalise a column spec to list(list(col=..., label=...))
@@ -77,14 +79,20 @@
   list(name = "", key = "root", children = .build_level(data, 1L, ""))
 }
 
+# Extract the widget id from either the current attribute name
+# (`widget_data_id`) or the legacy one (`sunburstr_id`).
 .widget_id <- function(widget_data) {
   attr(widget_data, "widget_data_id") %||% attr(widget_data, "sunburstr_id")
 }
 
+# Extract the widget config from either the current attribute name
+# (`widget_data_config`) or the legacy one (`sunburstr_config`).
 .widget_config <- function(widget_data) {
   attr(widget_data, "widget_data_config") %||% attr(widget_data, "sunburstr_config")
 }
 
+# Validate that an object is the HTML/context bundle returned by widget_data().
+# Accepts both the current class name and the legacy `sunburstr_ctx` alias.
 .check_widget_data <- function(widget_data) {
   if (!inherits(widget_data, c("quarto_widget_data", "sunburstr_ctx"))) {
     stop(
@@ -95,6 +103,7 @@
   }
 }
 
+# Legacy helper alias kept for backward compatibility.
 .check_ctx <- .check_widget_data
 
 # Convert an R value to a JavaScript literal string for use in boot scripts.
