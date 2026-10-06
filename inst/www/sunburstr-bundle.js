@@ -449,8 +449,21 @@
       // Check if table rows should be clickable
       this.clickableSelector = this.table && this.table.getAttribute('data-clickable-selector') === 'true';
 
+      // Check if the comparison plot should use filtered mode
+      this.filteredComparison = this.plot && this.plot.getAttribute('data-filtered-comparison') === 'true';
+      this._plotFilterRendering = false;
+
       this.eb.on('wijk-selected', s    => { this._updateHeader(s); this._reRender(s); });
       this.eb.on('node-selected', node => this._renderNode(node));
+
+      // When the plot filter selection changes, re-render the current node
+      if (this.filteredComparison) {
+        this.eb.on('plot-filter-changed', () => {
+          if (this._plotFilterRendering) return;
+          const node = this.state.getNode();
+          if (node) this._renderNode(node);
+        }, false);
+      }
     }
 
     _updateHeader(s) {
@@ -580,11 +593,33 @@
         this._attachRowClickHandlers(t, themeRows);
       }
       if (this.plot) {
-        const compRows = s.comparisonRows.filter(r => r.key === node.data.key);
+        let compRows = s.comparisonRows.filter(r => r.key === node.data.key);
         // Comparison plot always uses the deepest-level score column
         const deepest = this.config.filters[this.config.filters.length - 1];
         const sc = this.config.scoreCol;
         const deepScoreCol = (deepest && typeof sc === 'object') ? (sc[deepest.col] || 'waarde') : (typeof sc === 'string' ? sc : 'waarde');
+        const labelCol = deepest ? deepest.col : null;
+
+        // Filtered comparison: emit available entities and apply filter
+        if (this.filteredComparison && labelCol) {
+          this._plotFilterRendering = true;
+          const available = compRows
+            .map(r => String(r[labelCol] || ''))
+            .filter(v => v && v !== String(s.entityId || ''));
+          this.eb.emit('plot-comparison-available', {
+            entities: [...new Set(available)].sort(),
+            activeEntity: String(s.entityId || '')
+          });
+          const filterValues = this.eb.get('plot-filter-changed');
+          if (Array.isArray(filterValues)) {
+            compRows = compRows.filter(r => {
+              const label = String(r[labelCol] || '');
+              return label === String(s.entityId) || filterValues.includes(label);
+            });
+          }
+          this._plotFilterRendering = false;
+        }
+
         drawComparisonPlot({ elementId: this.plot.id, rows: compRows, selectedEntityId: s.entityId, config: this.config, scoreCol: deepScoreCol, plotColors: this.plotColors });
       }
     }
@@ -1485,6 +1520,43 @@
             eventBus.emit('dimension-changed', { ...current });
           });
         });
+      },
+      addPlotFilter({ containerSelector, placeholder = 'Selecteer gebieden...' }) {
+        const container = document.querySelector(containerSelector);
+        if (!container) return;
+        const selectEl = container.querySelector('select');
+        if (!selectEl) return;
+
+        let ts = null;
+        if (window.TomSelect) {
+          ts = new TomSelect(selectEl, {
+            plugins: ['remove_button'],
+            maxItems: null,
+            placeholder: placeholder,
+            create: false,
+            onChange: function(value) {
+              const arr = Array.isArray(value) ? value : (value ? String(value).split(',').filter(Boolean) : []);
+              eventBus.emit('plot-filter-changed', arr);
+            }
+          });
+        }
+
+        eventBus.on('plot-comparison-available', ({ entities, activeEntity }) => {
+          if (!ts) return;
+          const currentVals = new Set(
+            (function() {
+              const v = ts.getValue();
+              return Array.isArray(v) ? v : (v ? String(v).split(',').filter(Boolean) : []);
+            })()
+          );
+          ts.clear(true);
+          ts.clearOptions();
+          entities.forEach(e => ts.addOption({ value: e, text: e }));
+          ts.refreshOptions(false);
+          const restored = entities.filter(e => currentVals.has(e));
+          restored.forEach(v => ts.addItem(v, true));
+          eventBus.emit('plot-filter-changed', restored);
+        }, false);
       },
       addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries, enableZoom }) {
         if (!_elExists(containerSelector)) return;
