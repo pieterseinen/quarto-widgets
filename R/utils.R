@@ -1,0 +1,155 @@
+# utils.R — Internal helpers and constants for the quartoWidgets package
+
+# ══════════════════════════════════════════════════════════════════════════
+# Default categories (Dutch public-health style)
+# ══════════════════════════════════════════════════════════════════════════
+.default_categories <- list(
+  list(name = "Geen data",          color = "#bdbdbd", min = NULL),
+  list(name = "Ongunstig",          color = "#d73027", min = 0L),
+  list(name = "Beetje ongunstiger", color = "#fc8d59", min = 20L),
+  list(name = "Gemiddeld",          color = "#fee08b", min = 30L),
+  list(name = "Beetje gunstiger",   color = "#91cf60", min = 50L),
+  list(name = "Gunstig",            color = "#1a9850", min = 70L)
+)
+
+# ══════════════════════════════════════════════════════════════════════════
+# Internal helpers
+# ══════════════════════════════════════════════════════════════════════════
+
+# Null-coalescing helper: return `b` only when `a` is NULL.
+# Handy for supporting optional arguments and legacy attributes.
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
+# Normalise a column spec to list(list(col=..., label=...))
+# Accepts: named vector c(col="Label"), unnamed vector c("col"),
+# or existing list-of-lists format.
+# Uses lapply (not mapply) to produce an UNNAMED list so that
+# jsonlite::toJSON serialises it as a JSON array, not an object.
+.normalise_cols <- function(x) {
+  if (is.null(x) || length(x) == 0) return(list())
+
+  # Already in list-of-lists format — return as-is
+  if (is.list(x) && length(x) > 0 && is.list(x[[1]])) return(x)
+
+  if (!is.character(x))
+    stop("Column specification must be a named character vector or a list of lists.",
+         call. = FALSE)
+
+  input_names <- names(x) %||% character(length(x))
+  lapply(seq_along(x), function(i) {
+    name_at_i  <- input_names[i]
+    value_at_i <- x[[i]]
+    col   <- if (nzchar(name_at_i)) name_at_i  else value_at_i
+    label <- if (nzchar(name_at_i)) value_at_i else gsub("_", " ", value_at_i)
+    list(col = col, label = label)
+  })
+}
+
+# Add (or overwrite) the key column: paste(hierarchy_col_values, sep="|")
+.add_key_column <- function(data, hierarchy_cols) {
+  col_names <- vapply(hierarchy_cols, `[[`, "", "col")
+  data$key  <- do.call(
+    paste,
+    c(lapply(col_names, function(col_name) as.character(data[[col_name]])), list(sep = "|"))
+  )
+  data
+}
+
+# Build a hierarchy nested list from data and normalised hierarchy_cols
+.build_hierarchy <- function(data, hierarchy_cols) {
+  if (length(hierarchy_cols) == 0)
+    return(list(name = "", key = "root", children = list()))
+
+  .build_level <- function(subset, level, parent_key) {
+    col_name      <- hierarchy_cols[[level]]$col
+    unique_values <- sort(unique(as.character(subset[[col_name]])))
+    unique_values <- unique_values[!is.na(unique_values) & nzchar(unique_values)]
+    lapply(unique_values, function(value) {
+      key             <- if (nzchar(parent_key)) paste(parent_key, value, sep = "|") else value
+      filtered_subset <- subset[as.character(subset[[col_name]]) == value, , drop = FALSE]
+      if (level == length(hierarchy_cols)) {
+        list(name = value, key = key, value = 1L)
+      } else {
+        list(name = value, key = key,
+             children = .build_level(filtered_subset, level + 1L, key))
+      }
+    })
+  }
+
+  list(name = "", key = "root", children = .build_level(data, 1L, ""))
+}
+
+# Extract the widget id from either the current attribute name
+# (`widget_data_id`) or the legacy one (`sunburstr_id`).
+.widget_id <- function(widget_data) {
+  attr(widget_data, "widget_data_id") %||% attr(widget_data, "sunburstr_id")
+}
+
+# Extract the widget config from either the current attribute name
+# (`widget_data_config`) or the legacy one (`sunburstr_config`).
+.widget_config <- function(widget_data) {
+  attr(widget_data, "widget_data_config") %||% attr(widget_data, "sunburstr_config")
+}
+
+# Validate that an object is the HTML/context bundle returned by widget_data().
+# Accepts both the current class name and the legacy `sunburstr_ctx` alias.
+.check_widget_data <- function(widget_data) {
+  if (!inherits(widget_data, c("quarto_widget_data", "sunburstr_ctx"))) {
+    stop(
+      "Expected a quarto_widget_data object. ",
+      "Did you forget to call widget_data() first?",
+      call. = FALSE
+    )
+  }
+}
+
+# Legacy helper alias kept for backward compatibility.
+.check_ctx <- .check_widget_data
+
+# Convert an R value to a JavaScript literal string for use in boot scripts.
+# NULL becomes "null"; everything else is JSON-serialised with auto_unbox.
+.as_js <- function(x) {
+  if (is.null(x)) "null"
+  else as.character(jsonlite::toJSON(x, auto_unbox = TRUE, null = "null"))
+}
+
+# Build a JS object literal from named arguments.
+# Each name becomes a JS property key; each value must already be a JS literal string.
+# Example: .js_object(foo = '"bar"', count = "42") => '{\n    foo: "bar",\n    count: 42\n  }'
+.js_object <- function(...) {
+  props <- list(...)
+  lines <- vapply(names(props), function(key) {
+    paste0("    ", key, ": ", props[[key]])
+  }, "")
+  paste0("{\n", paste(lines, collapse = ",\n"), "\n  }")
+}
+
+# Wrap a JS call inside a DOMContentLoaded listener.
+# js_body is the function call(s) to execute on load.
+.js_on_ready <- function(js_body) {
+  paste0(
+    'document.addEventListener("DOMContentLoaded", function() {\n',
+    js_body,
+    '\n});'
+  )
+}
+
+.quarto_widgets_dependencies <- function() {
+  htmltools::tagList(
+    htmltools::singleton(htmltools::tags$script(src = "https://d3js.org/d3.v7.min.js")),
+    htmltools::singleton(htmltools::tags$script(src = "https://code.jquery.com/jquery-3.7.1.min.js")),
+    htmltools::singleton(htmltools::tags$link(rel = "stylesheet", href = "https://cdn.datatables.net/2.0.0/css/dataTables.dataTables.min.css")),
+    htmltools::singleton(htmltools::tags$script(src = "https://cdn.datatables.net/2.0.0/js/dataTables.min.js")),
+    htmltools::singleton(htmltools::tags$script(src = "https://cdn.plot.ly/plotly-2.35.2.min.js")),
+    htmltools::singleton(htmltools::tags$link(rel = "stylesheet", href = "https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css")),
+    htmltools::singleton(htmltools::tags$script(src = "https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js")),
+    htmltools::htmlDependency(
+      name       = "quartoWidgets",
+      version    = "0.4.0",
+      src        = system.file("www", package = "quartoWidgets"),
+      stylesheet = "custom.css",
+      script     = "sunburstr-bundle.js",
+      all_files  = FALSE
+    )
+  )
+}
