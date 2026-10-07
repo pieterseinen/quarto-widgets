@@ -2,6 +2,7 @@
 
 export(geo_prepare)
 export(polygon_selector)
+export(radio_selector)
 export(sunburst_chart)
 export(widget_data)
 export(widget_gauge)
@@ -10,5 +11,4 @@ export(widget_layout)
 export(widget_plot)
 export(widget_plot_filter)
 export(widget_selectors)
-export(radio_selector)
 export(widget_table)
