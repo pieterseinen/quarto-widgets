@@ -413,6 +413,9 @@
       labelCol && String(r[labelCol]) === String(selectedEntityId) ? hiColor : barColor
     );
 
+    // Y-axis range: explicit yScale from R opts, or null for Plotly auto-scale
+    const yRange = plotColors.yScale || null;
+
     Plotly.newPlot(elementId, [{
       type: 'bar', x: xLabels, y: ordered.map(r => r[scoreCol]),
       marker: { color: finalColors },
@@ -420,7 +423,7 @@
     }], {
       margin: { l: 60, r: 30, t: 30, b: 170 },
       xaxis:  { tickangle: -45, fixedrange: true },
-      yaxis:  { title: 'Score', range: [0, 100], fixedrange: true },
+      yaxis:  { title: 'Score', range: yRange, fixedrange: true },
       dragmode: false,
       shapes, annotations
     }, { responsive: true, displayModeBar: false,

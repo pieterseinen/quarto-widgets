@@ -184,6 +184,9 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #' @param filtered_comparison Logical. When \code{TRUE}, the comparison plot
 #'   interacts with \code{\link{widget_plot_filter}}: only the active entity
 #'   and the entities selected in the filter are shown.  Default \code{FALSE}.
+#' @param y_scale Optional numeric vector of length 2 giving the fixed y-axis
+#'   range, e.g. \code{c(0, 100)}.  When \code{NULL} (default) the y-axis
+#'   auto-scales to the data in the plot.
 #' @return An \code{htmltools::tagList}.
 #'
 #' @examples
@@ -191,6 +194,7 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_plot(wd)
+#' widget_plot(wd, y_scale = c(0, 100))
 #' widget_plot(wd, colors = list(bar = "#bdbdbd", highlight = "#e6550d"))
 #' widget_plot(wd, filtered_comparison = TRUE)
 #' }
@@ -198,14 +202,20 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #' @seealso \code{\link{widget_plot_filter}}
 #'
 #' @export
-widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE) {
+widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
+                        y_scale = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-plot-output")
 
+  # Build options object: merge bar/highlight colours with y-scale
+  opts <- list()
+  if (!is.null(colors) && is.list(colors)) opts <- c(opts, colors)
+  if (!is.null(y_scale)) opts$yScale <- y_scale
+
   tags <- list()
-  if (!is.null(colors) && is.list(colors)) {
-    opts_json <- as.character(jsonlite::toJSON(colors, auto_unbox = TRUE, null = "null"))
+  if (length(opts) > 0L) {
+    opts_json <- as.character(jsonlite::toJSON(opts, auto_unbox = TRUE, null = "null"))
     tags <- c(tags, list(
       htmltools::tags$script(
         id = paste0(div_id, "-opts"),
