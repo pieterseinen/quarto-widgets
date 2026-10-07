@@ -380,7 +380,8 @@
     const filters  = config.filters || [];
     const deepest  = filters[filters.length - 1];
     const labelCol = deepest ? deepest.col : null;
-    const compCols = config.comparisonCols || [];
+    const compCols = config.comparisonCols
+    
     // Always use the deepest filter's score column for comparison bars
     const scoreCol = overrideScoreCol || (function() {
       const sc = config.scoreCol;
@@ -402,8 +403,8 @@
       if (val == null) return;
       shapes.push({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: val, y1: val,
                     line: { dash: i === 0 ? 'dash' : 'dot', width: 2 } });
-      annotations.push({ x: 0.98, xref: 'paper', y: val, text: cc.label,
-                         showarrow: false, xanchor: 'right', yanchor: i === 0 ? 'bottom' : 'top' });
+      annotations.push({ x: 1.02, xref: 'paper', y: val, text: cc.label,
+                   showarrow: false, xanchor: 'left', yanchor: i === 0 ? 'bottom' : 'top' });
     });
 
     // Resolve bar/highlight colors: plotColors override > defaults
@@ -421,7 +422,7 @@
       marker: { color: finalColors },
       hovertemplate: '<b>%{x}</b><br>Score: %{y:.1f}<extra></extra>'
     }], {
-      margin: { l: 60, r: 30, t: 30, b: 170 },
+      margin: { l: 60, r: 120, t: 30, b: 170 },
       xaxis:  { tickangle: -45, fixedrange: true },
       yaxis:  { title: 'Score', range: yRange, fixedrange: true },
       dragmode: false,
@@ -552,7 +553,7 @@
       });
       groups.forEach((grpRows, l2Name) => {
         if (this.table) {
-          const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h);
+          // const h = document.createElement('h3'); h.textContent = l2Name; this.table.appendChild(h); // Geen header boven tabellen
           const t = createIndicatorTable(grpRows, this.config, this._tableOpts(s));
           this.table.appendChild(t); initialiseTable(t);
           this._attachRowClickHandlers(t, grpRows);
@@ -567,8 +568,8 @@
       if (!s.allFiltersSet) rows = this._dedup(rows);
       rows = this._ensureAllIndicators(rows, node);
       if (this.table) {
-        const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name;
-        const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
+        // const label = node.parent ? node.parent.data.name + ' → ' + node.data.name : node.data.name; // Geen header boven tabellen
+        // const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h); // Geen header boven tabellen
         const t = createIndicatorTable(rows, this.config, this._tableOpts(s));
         this.table.appendChild(t); initialiseTable(t);
         this._attachRowClickHandlers(t, rows);
@@ -586,10 +587,10 @@
       if (!s.allFiltersSet) themeRows = this._dedup(themeRows);
       themeRows = this._ensureAllIndicators(themeRows, themeNode || node);
       if (this.table) {
-        const label = themeNode && themeNode.parent
-          ? themeNode.parent.data.name + ' \u2192 ' + themeNode.data.name
-          : (themeNode ? themeNode.data.name : node.data.name);
-        const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);
+        // const label = themeNode && themeNode.parent                                              // Geen header boven tabellen
+        //  ? themeNode.parent.data.name + ' \u2192 ' + themeNode.data.name                         // Geen header boven tabellen
+        //  : (themeNode ? themeNode.data.name : node.data.name);                                   // Geen header boven tabellen
+        // const h = document.createElement('h3'); h.textContent = label; this.table.appendChild(h);// Geen header boven tabellen
         const opts = { ...this._tableOpts(s), highlightKey: node.data.key };
         const t = createIndicatorTable(themeRows, this.config, opts);
         this.table.appendChild(t); initialiseTable(t);
@@ -1325,16 +1326,20 @@
     }
 
     _updateMessage() {
-      if (this.showWhenFilter && this.el.classList.contains('polygon-selector-hidden')) return;
-      if (this.layered && this.currentLevel === 'parent') {
-        this.message.textContent = 'Klik op een polygon om naar het volgende niveau te gaan.';
-      } else if (this.layered && this.currentParentValue) {
-        this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
-      } else if (this.parentFilter && this.currentParentValue) {
-        this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
-      } else {
-        this.message.textContent = 'Klik op een polygon om te selecteren.';
-      }
+      
+      if(this.message) this.message.textContent = ' ';
+      //
+      // if (this.showWhenFilter && this.el.classList.contains('polygon-selector-hidden')) return;
+      // if (this.layered && this.currentLevel === 'parent') {
+      //  this.message.textContent = 'Klik op een polygon om naar het volgende niveau te gaan.';
+      // } else if (this.layered && this.currentParentValue) {
+      //  this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
+      //} else if (this.parentFilter && this.currentParentValue) {
+      //  this.message.textContent = `Klik op een polygon binnen ${this.currentParentValue}.`;
+      // } else {
+      //  this.message.textContent = 'Klik op een polygon om te selecteren.';
+      //}
+      //
     }
 
     _updateBackButton() {
@@ -1524,43 +1529,54 @@
           });
         });
       },
-      addPlotFilter({ containerSelector, placeholder = 'Selecteer gebieden...' }) {
-        const container = document.querySelector(containerSelector);
-        if (!container) return;
-        const selectEl = container.querySelector('select');
-        if (!selectEl) return;
-
-        let ts = null;
-        if (window.TomSelect) {
-          ts = new TomSelect(selectEl, {
-            plugins: ['remove_button'],
-            maxItems: null,
-            placeholder: placeholder,
-            create: false,
-            onChange: function(value) {
-              const arr = Array.isArray(value) ? value : (value ? String(value).split(',').filter(Boolean) : []);
-              eventBus.emit('plot-filter-changed', arr);
-            }
-          });
-        }
-
-        eventBus.on('plot-comparison-available', ({ entities, activeEntity }) => {
-          if (!ts) return;
-          const currentVals = new Set(
-            (function() {
-              const v = ts.getValue();
-              return Array.isArray(v) ? v : (v ? String(v).split(',').filter(Boolean) : []);
-            })()
-          );
-          ts.clear(true);
-          ts.clearOptions();
-          entities.forEach(e => ts.addOption({ value: e, text: e }));
-          ts.refreshOptions(false);
-          const restored = entities.filter(e => currentVals.has(e));
-          restored.forEach(v => ts.addItem(v, true));
-          eventBus.emit('plot-filter-changed', restored);
-        }, false);
-      },
+        addPlotFilter({ containerSelector, placeholder = 'Selecteer gebieden...' }) {
+          const container = document.querySelector(containerSelector);
+          if (!container) return;
+          const selectEl = container.querySelector('select');
+          if (!selectEl) return;
+        
+          let ts = null;
+          if (window.TomSelect) {
+            ts = new TomSelect(selectEl, {
+              plugins: ['remove_button'],
+              maxItems: null,
+              placeholder: placeholder,
+              create: false,
+              onChange: function(value) {
+                const arr = Array.isArray(value) ? value : (value ? String(value).split(',').filter(Boolean) : []);
+                eventBus.emit('plot-filter-changed', arr);
+              }
+            });
+          }
+        
+          eventBus.on('plot-comparison-available', ({ entities, activeEntity }) => {
+            container.style.display = 'block';                        // ← show filter
+            if (!ts) return;
+            const currentVals = new Set(
+              (function() {
+                const v = ts.getValue();
+                return Array.isArray(v) ? v : (v ? String(v).split(',').filter(Boolean) : []);
+              })()
+            );
+            ts.clear(true);
+            ts.clearOptions();
+            entities.forEach(e => ts.addOption({ value: e, text: e }));
+            ts.refreshOptions(false);
+            const restored = entities.filter(e => currentVals.has(e));
+            restored.forEach(v => ts.addItem(v, true));
+            eventBus.emit('plot-filter-changed', restored);
+          }, false);
+        
+          // Hide when a non-indicator node is selected (depth 1 or 2)
+          eventBus.on('node-selected', (node) => {
+            if (!node || node.depth !== 3) container.style.display = 'none';
+          }, false);
+        
+          // Hide when entity selection is cleared entirely
+          eventBus.on('wijk-selected', (s) => {
+            if (!s) container.style.display = 'none';
+          }, false);
+        },
       addPolygonSelector({ containerSelector, geoScriptId, parentGeoScriptId = null, filterLevel, nameProp, parentFilter, parentProp, showWhenFilter, layered, defaultLevel, zoomToVisible, backLabel, colors, selectedStrokeWidth, showEmptyGeometries, enableZoom }) {
         if (!_elExists(containerSelector)) return;
         const geoData = readEmbeddedJson(geoScriptId);
