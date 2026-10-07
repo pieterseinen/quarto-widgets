@@ -181,6 +181,12 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #' @param colors Optional named list of hex colour strings for the bar chart.
 #'   Supported keys: \code{bar} (default bar colour, default \code{"#CFCFCF"}),
 #'   \code{highlight} (selected entity bar colour, default \code{"#2C7FB8"}).
+#' @param filtered_comparison Logical. When \code{TRUE}, the comparison plot
+#'   interacts with \code{\link{widget_plot_filter}}: only the active entity
+#'   and the entities selected in the filter are shown.  Default \code{FALSE}.
+#' @param y_scale Optional numeric vector of length 2 giving the fixed y-axis
+#'   range, e.g. \code{c(0, 100)}.  When \code{NULL} (default) the y-axis
+#'   auto-scales to the data in the plot.
 #' @return An \code{htmltools::tagList}.
 #'
 #' @examples
@@ -188,18 +194,28 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #' wd <- widget_data(df, id = "demo")
 #' wd
 #' widget_plot(wd)
+#' widget_plot(wd, y_scale = c(0, 100))
 #' widget_plot(wd, colors = list(bar = "#bdbdbd", highlight = "#e6550d"))
+#' widget_plot(wd, filtered_comparison = TRUE)
 #' }
 #'
+#' @seealso \code{\link{widget_plot_filter}}
+#'
 #' @export
-widget_plot <- function(widget_data, colors = NULL) {
+widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
+                        y_scale = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-plot-output")
 
+  # Build options object: merge bar/highlight colours with y-scale
+  opts <- list()
+  if (!is.null(colors) && is.list(colors)) opts <- c(opts, colors)
+  if (!is.null(y_scale)) opts$yScale <- y_scale
+
   tags <- list()
-  if (!is.null(colors) && is.list(colors)) {
-    opts_json <- as.character(jsonlite::toJSON(colors, auto_unbox = TRUE, null = "null"))
+  if (length(opts) > 0L) {
+    opts_json <- as.character(jsonlite::toJSON(opts, auto_unbox = TRUE, null = "null"))
     tags <- c(tags, list(
       htmltools::tags$script(
         id = paste0(div_id, "-opts"),
@@ -208,8 +224,77 @@ widget_plot <- function(widget_data, colors = NULL) {
       )
     ))
   }
-  tags <- c(tags, list(htmltools::div(id = div_id)))
+  tags <- c(tags, list(
+    htmltools::div(
+      id = div_id,
+      `data-filtered-comparison` = if (isTRUE(filtered_comparison)) "true" else NULL
+    )
+  ))
   do.call(htmltools::tagList, tags)
+}
+
+#' Comparison plot filter control
+#'
+#' Renders a searchable multi-select list (powered by TomSelect) that lets the
+#' end user choose which comparison regions are visible in the
+#' \code{\link{widget_plot}} bar chart.  Selected items can be removed with a
+#' close button, similar to the selectize.js pattern.
+#'
+#' The available options are automatically populated from the comparison data:
+#' all regions except the currently active (highlighted) one are offered.  The
+#' active region always remains visible in the plot regardless of the filter.
+#'
+#' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
+#' @param label Optional label displayed above the filter control.
+#'   Default \code{"Vergelijkingsgebieden"}.
+#' @param placeholder Placeholder text shown when no items are selected.
+#'   Default \code{"Selecteer gebieden..."}.
+#'
+#' @return An \code{htmltools::tagList} containing the filter container and a
+#'   boot script that wires it to the widget event bus.
+#'
+#' @seealso \code{\link{widget_plot}}
+#'
+#' @examples
+#' \dontrun{
+#' wd <- widget_data(df, id = "demo")
+#' wd
+#' widget_plot_filter(wd)
+#' widget_plot(wd, filtered_comparison = TRUE)
+#' }
+#'
+#' @export
+widget_plot_filter <- function(
+    widget_data,
+    label       = "Vergelijkingsgebieden",
+    placeholder = "Selecteer gebieden..."
+) {
+  .check_widget_data(widget_data)
+  id     <- .widget_id(widget_data)
+  div_id <- paste0(id, "-plot-filter")
+
+  boot <- .js_on_ready(paste0(
+    '  var db = window.__quartoWidgets && window.__quartoWidgets["', id, '"];\n',
+    "  if (db) db.addPlotFilter(",
+    .js_object(
+      containerSelector = .as_js(paste0("#", div_id)),
+      placeholder       = .as_js(placeholder)
+    ),
+    ");"
+  ))
+
+  htmltools::tagList(
+    htmltools::div(
+      id = div_id, class = "plot-filter",
+      if (!is.null(label)) htmltools::tags$label(class = "plot-filter-label", label),
+      htmltools::tags$select(
+        id       = paste0(div_id, "-select"),
+        multiple = "multiple",
+        placeholder = placeholder
+      )
+    ),
+    htmltools::tags$script(htmltools::HTML(boot))
+  )
 }
 
 #' Default three-column widget layout
