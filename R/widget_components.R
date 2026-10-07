@@ -148,6 +148,10 @@ widget_header <- function(widget_data) {
 #'   table become clickable.  Clicking a row selects the corresponding indicator
 #'   in the sunburst chart and shows the comparison plot, just like clicking an
 #'   outer ring slice.  Default \code{FALSE}.
+#' @param color_score_cells Logical. When \code{TRUE}, the score value cells
+#'   in the table are given a background colour matching the sunburst category
+#'   colour (determined by \code{category_col}, or \code{score_col} when no
+#'   separate category column is configured).  Default \code{FALSE}.
 #' @return An \code{htmltools::tagList}.
 #'
 #' @examples
@@ -156,10 +160,12 @@ widget_header <- function(widget_data) {
 #' wd
 #' widget_table(wd)
 #' widget_table(wd, clickable_selector = TRUE)
+#' widget_table(wd, color_score_cells = TRUE)
 #' }
 #'
 #' @export
-widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
+widget_table <- function(widget_data, clickable_selector = FALSE,
+                         color_score_cells = FALSE, font = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-table-output")
@@ -167,7 +173,8 @@ widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
   tags <- list(
     htmltools::div(
       id = div_id,
-      `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL
+      `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL,
+      `data-color-score-cells` = if (isTRUE(color_score_cells)) "true" else NULL
     )
   )
   

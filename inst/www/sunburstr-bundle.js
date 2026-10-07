@@ -72,6 +72,20 @@
       // Keep a convenience alias for the deepest-level score column
       const deepestFilter = this.filters[this.filters.length - 1];
       this.scoreCol = deepestFilter ? (this.scoreColMap[deepestFilter.col] || 'waarde') : 'waarde';
+
+      // categoryCol: optional separate column for sunburst colour/category.
+      // When absent, category colours are derived from scoreCol (backward compat).
+      const rawCat = config.categoryCol || null;
+      if (rawCat) {
+        if (typeof rawCat === 'string') {
+          const deepestF = this.filters[this.filters.length - 1];
+          this.categoryColMap = deepestF ? { [deepestF.col]: rawCat } : {};
+        } else {
+          this.categoryColMap = rawCat;
+        }
+      } else {
+        this.categoryColMap = null;
+      }
     }
 
     // Return the score column to use given the currently filled filter values.
@@ -85,6 +99,20 @@
         }
       }
       return null;
+    }
+
+    // Return the category column for the current filter state.
+    // Falls back to getActiveScoreCol() when no separate categoryCol is configured.
+    getActiveCategoryCol(filterValues) {
+      if (!this.categoryColMap) return this.getActiveScoreCol(filterValues);
+      for (let i = this.filters.length - 1; i >= 0; i--) {
+        const f = this.filters[i];
+        if (filterValues[f.col] && this.categoryColMap[f.col]) {
+          return this.categoryColMap[f.col];
+        }
+      }
+      // Fall back to score col if category col has no entry for this level
+      return this.getActiveScoreCol(filterValues);
     }
 
     // Unique values for filter level i, constrained by parent selections
@@ -124,8 +152,15 @@
         ? this.rows.filter(r => Object.entries(compFilterValues).every(([k, v]) => !v || r[k] === v))
         : this.rows;
 
-      // lookup: key → score using the active score column
+      // lookup: key → score using the active score column (for display in table/plot)
       const lookup = new Map(wijkRows.map(r => [r.key, _toNumber(r[activeScoreCol])]));
+
+      // categoryLookup: key → category value (for sunburst colours).
+      // Uses categoryCol when configured, otherwise identical to lookup.
+      const activeCategoryCol = this.getActiveCategoryCol(filterValues);
+      const categoryLookup = (activeCategoryCol && activeCategoryCol !== activeScoreCol)
+        ? new Map(wijkRows.map(r => [r.key, _toNumber(r[activeCategoryCol])]))
+        : lookup;
 
       // entityId = deepest filter value (for comparison plot highlight).
       // When only a parent filter is set this is null → no bar highlighted.
@@ -138,7 +173,7 @@
       const activeFilterLabel = deepestFilledFilter ? deepestFilledFilter.label : null;
       const allFiltersSet = this.filters.length > 0 && this.filters.every(f => !!filterValues[f.col]);
 
-      return { filterValues, wijkRows, comparisonRows, lookup, entityId,
+      return { filterValues, wijkRows, comparisonRows, lookup, categoryLookup, entityId,
                activeScoreCol, activeFilterLabel, allFiltersSet };
     }
   }
@@ -271,7 +306,13 @@
     _emitAllData() {
       // No filters at all — emit all rows as the selection
       const lookup = new Map(this.data.rows.map(r => [r.key, _toNumber(r[this.data.scoreCol])]));
-      const sel = { filterValues: {}, wijkRows: this.data.rows, comparisonRows: this.data.rows, lookup, entityId: null };
+      // categoryLookup: use categoryColMap if configured, otherwise same as lookup
+      const catColMap = this.data.categoryColMap;
+      const catCol = catColMap ? Object.values(catColMap)[0] : null;
+      const categoryLookup = catCol
+        ? new Map(this.data.rows.map(r => [r.key, _toNumber(r[catCol])]))
+        : lookup;
+      const sel = { filterValues: {}, wijkRows: this.data.rows, comparisonRows: this.data.rows, lookup, categoryLookup, entityId: null };
       this.state.setSelection(sel);
       this.eb.emit('wijk-selected', sel);
     }
@@ -335,7 +376,7 @@
   // ════════════════════════════════════════════════════════════════
   // Table helpers (config-aware)
   // ════════════════════════════════════════════════════════════════
-  function createIndicatorTable(rows, config, { scoreCol, scoreLabel, highlightKey } = {}) {
+  function createIndicatorTable(rows, config, { scoreCol, scoreLabel, highlightKey, colorScoreCells, categories, categoryLookup } = {}) {
     const hCols    = config.hierarchyCols || [];
     const indCol   = hCols.length ? hCols[hCols.length - 1].col : 'indicator';
     const compCols = config.comparisonCols || [];
@@ -359,7 +400,15 @@
     table.innerHTML = `<thead><tr>${headers.map(h => '<th>' + h + '</th>').join('')}</tr></thead>
       <tbody>${sorted.map(r => {
         const cls = highlightKey && r.key === highlightKey ? ' class="row-selected"' : '';
-        return '<tr' + cls + '><td>' + (r[indCol] || '') + '</td><td>' + _fmt(r[resolvedScoreCol]) + '</td>'
+        let scoreStyle = '';
+        if (colorScoreCells && categories && categoryLookup) {
+          const catVal = categoryLookup.get(r.key);
+          const cat = _catFromScore(catVal, categories);
+          if (cat && cat.color) {
+            scoreStyle = ' style="background-color:' + cat.color + ';color:#fff;font-weight:600"';
+          }
+        }
+        return '<tr' + cls + '><td>' + (r[indCol] || '') + '</td><td' + scoreStyle + '>' + _fmt(r[resolvedScoreCol]) + '</td>'
           + compCols.map(c => '<td>' + _fmt(r[c.col]) + '</td>').join('') + '</tr>';
       }).join('')}</tbody>`;
     return table;
@@ -453,6 +502,9 @@
       // Check if table rows should be clickable
       this.clickableSelector = this.table && this.table.getAttribute('data-clickable-selector') === 'true';
 
+      // Check if score cells should be coloured by category
+      this.colorScoreCells = this.table && this.table.getAttribute('data-color-score-cells') === 'true';
+
       // Check if the comparison plot should use filtered mode
       this.filteredComparison = this.plot && this.plot.getAttribute('data-filtered-comparison') === 'true';
       this._plotFilterRendering = false;
@@ -531,10 +583,16 @@
 
     // Table options derived from the current selection
     _tableOpts(s) {
-      return {
+      const opts = {
         scoreCol:   s.activeScoreCol,
         scoreLabel: s.activeFilterLabel ? 'Score ' + s.activeFilterLabel : 'Score'
       };
+      if (this.colorScoreCells) {
+        opts.colorScoreCells = true;
+        opts.categories      = this.config.categories || [];
+        opts.categoryLookup  = s.categoryLookup;
+      }
+      return opts;
     }
 
     _renderLevel1(node, s) {
@@ -873,12 +931,12 @@
     }
 
     _update(selection) {
-      if (!selection || !selection.lookup) {
+      if (!selection || !selection.categoryLookup) {
         this.root.each(n => { n.score = null; n.category = this.cats.find(c => c.min == null) || this.cats[0]; });
       } else {
         this.root.each(n => {
           if (n.depth < 3) { n.score = null; n.category = this.cats.find(c => c.min == null) || this.cats[0]; return; }
-          const sc = selection.lookup.get(n.data.key);
+          const sc = selection.categoryLookup.get(n.data.key);
           n.score = sc ?? null;
           n.category = _catFromScore(n.score, this.cats);
         });
