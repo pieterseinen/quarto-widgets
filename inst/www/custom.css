@@ -46,6 +46,8 @@ text {
     display: flex;
     justify-content: center;
     align-items: flex-start;
+    padding-right: 30px; /*padding toegevoeggd aan zijkanten*/
+    padding-left: 30px; /*padding toegevoeggd aan zijkanten*/
 }
 
 /* Table column */
@@ -143,8 +145,10 @@ table.display tr.row-selected td {
 
 /* ── Plot Filter (filtered comparison) ────────────────────── */
 .plot-filter {
+  display: none;
   padding: 8px 0;
 }
+
 .plot-filter-label {
   display: block;
   font-weight: 600;

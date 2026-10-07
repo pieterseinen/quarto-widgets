@@ -159,17 +159,28 @@ widget_header <- function(widget_data) {
 #' }
 #'
 #' @export
-widget_table <- function(widget_data, clickable_selector = FALSE) {
+widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-table-output")
-
+  
   tags <- list(
     htmltools::div(
       id = div_id,
       `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL
     )
   )
+  
+  if (!is.null(font) && is.list(font)) {
+    rules <- character()
+    if (!is.null(font$family)) rules <- c(rules, paste0("font-family: ", font$family, ";"))
+    if (!is.null(font$size))   rules <- c(rules, paste0("font-size: ", font$size, "px;"))
+    if (length(rules) > 0L) {
+      css <- paste0("#", div_id, " { ", paste(rules, collapse = " "), " }")
+      tags <- c(list(htmltools::tags$style(htmltools::HTML(css))), tags)
+    }
+  }
+  
   do.call(htmltools::tagList, tags)
 }
 
@@ -203,7 +214,7 @@ widget_table <- function(widget_data, clickable_selector = FALSE) {
 #'
 #' @export
 widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
-                        y_scale = NULL) {
+                        y_scale = NULL, font = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-plot-output")
