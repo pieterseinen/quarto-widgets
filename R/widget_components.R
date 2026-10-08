@@ -221,7 +221,7 @@ widget_table <- function(widget_data, clickable_selector = FALSE,
 #'
 #' @export
 widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
-                        y_scale = NULL, font = NULL) {
+                        y_scale = NULL, font = NULL, x_axis_labels = FALSE) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-plot-output")
@@ -230,6 +230,7 @@ widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
   opts <- list()
   if (!is.null(colors) && is.list(colors)) opts <- c(opts, colors)
   if (!is.null(y_scale)) opts$yScale <- y_scale
+  if (isTRUE(x_axis_labels)) opts$xAxisLabels <- TRUE
 
   tags <- list()
   if (length(opts) > 0L) {

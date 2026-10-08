@@ -465,14 +465,15 @@
 
     // Y-axis range: explicit yScale from R opts, or null for Plotly auto-scale
     const yRange = plotColors.yScale || null;
-
+    const showXLabels = plotColors.xAxisLabels || false;
+    
     Plotly.newPlot(elementId, [{
       type: 'bar', x: xLabels, y: ordered.map(r => r[scoreCol]),
       marker: { color: finalColors },
       hovertemplate: '<b>%{x}</b><br>Score: %{y:.1f}<extra></extra>'
     }], {
-      margin: { l: 60, r: 120, t: 30, b: 170 },
-      xaxis:  { tickangle: -45, fixedrange: true },
+      margin: { l: 60, r: 120, t: 30, b: showXLabels ? 170 : 40 },
+      xaxis: { tickangle: -45, fixedrange: true, showticklabels: showXLabels },
       yaxis:  { title: 'Score', range: yRange, fixedrange: true },
       dragmode: false,
       shapes, annotations
