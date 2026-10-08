@@ -805,10 +805,9 @@
 
       // Chart options (from sunburst_chart() R arguments)
       this._opts = {
-        strokeColor: options.colors?.stroke || '#ffffff',
-        noDataColor: options.colors?.no_data || null,  // falls back to category
-        labelColor:  options.labelColor || '#333333',
-        fontSize:    options.fontSize || null  // null = auto
+        strokeColor: options.strokeColor || '#ffffff',
+        labelColor:  options.labelColor  || '#333333',
+        fontSize:    options.fontSize    || null  // null = auto
       };
 
       const rw = { 1: 135, 2: 110, 3: 12 };

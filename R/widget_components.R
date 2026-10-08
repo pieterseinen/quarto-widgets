@@ -46,12 +46,12 @@ widget_selectors <- function(widget_data, filter = NULL) {
 #' Places the \code{<div>} for the three-ring sunburst chart with optional
 #' visual customisation.
 #'
+#' Category colours (including the \dQuote{no data} colour) are controlled
+#' by the \code{categories} argument of \code{\link{widget_data}}, not here.
+#' This function only exposes chart-level visual properties.
+#'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
-#' @param colors Optional named list to customise segment colours. Supported keys:
-#'   \describe{
-#'     \item{\code{stroke}}{Border colour between segments (default \code{"#ffffff"}).}
-#'     \item{\code{no_data}}{Segment colour when no score available (default \code{"#bdbdbd"}).}
-#'   }
+#' @param stroke_color Border colour between segments. Default \code{"#ffffff"}.
 #' @param label_color Text colour for segment labels. Default \code{"#333333"}.
 #' @param font_size Base font size in px for labels. When \code{NULL} (default), font
 #'   size is calculated automatically from available segment width. When a numeric value
@@ -67,20 +67,20 @@ widget_selectors <- function(widget_data, filter = NULL) {
 #' sunburst_chart(wd)
 #'
 #' # Custom styling
-#' sunburst_chart(wd, colors = list(stroke = "#eeeeee"),
+#' sunburst_chart(wd, stroke_color = "#eeeeee",
 #'                label_color = "#000000", font_size = 11)
 #' }
 #'
 #' @export
-sunburst_chart <- function(widget_data, colors = NULL, label_color = NULL,
+sunburst_chart <- function(widget_data, stroke_color = NULL, label_color = NULL,
                            font_size = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
 
   opts <- list()
-  if (!is.null(colors) && is.list(colors)) opts$colors <- colors
-  if (!is.null(label_color))               opts$labelColor <- label_color
-  if (!is.null(font_size))                 opts$fontSize <- font_size
+  if (!is.null(stroke_color))              opts$strokeColor <- stroke_color
+  if (!is.null(label_color))               opts$labelColor  <- label_color
+  if (!is.null(font_size))                 opts$fontSize    <- font_size
 
   div_tag <- htmltools::div(id = paste0(id, "-sunburst"))
 
