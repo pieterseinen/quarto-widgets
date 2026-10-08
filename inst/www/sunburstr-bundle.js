@@ -405,7 +405,7 @@
           const catVal = categoryLookup.get(r.key);
           const cat = _catFromScore(catVal, categories);
           if (cat && cat.color) {
-            scoreStyle = ' style="background-color:' + cat.color + ';color:#fff;font-weight:600"';
+            scoreStyle = ' style="background-color:' + cat.color + ';font-weight:600"';
           }
         }
         return '<tr' + cls + '><td>' + (r[indCol] || '') + '</td><td' + scoreStyle + '>' + _fmt(r[resolvedScoreCol]) + '</td>'
