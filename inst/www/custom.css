@@ -96,10 +96,12 @@ text {
   stroke-width: 1.5px;
 }
 
-/* ── Detail table: highlighted indicator row ──────────────────── */
+/* ── Detail table: highlighted indicator row ────────────────── */
 table.display tr.row-selected td {
-  background-color: #dbeafe !important;
   font-weight: 600;
+}
+table.display tr.row-selected td:first-child {
+  box-shadow: inset 4px 0 0 #2563eb;
 }
 
 /* ── Radio Selector ───────────────────────────────────────── */

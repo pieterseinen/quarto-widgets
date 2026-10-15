@@ -31,7 +31,14 @@
 #'   or a named character vector mapping filter column names to score columns
 #'   (e.g. \code{c(gemeente = "gemeente_gemiddelde", wijk = "waarde")}). When a
 #'   named vector is supplied the sunburst populates as soon as the deepest
-#'   filter that has a score column is selected.
+#'   filter that has a score column is selected.  This column drives the values
+#'   shown in the detail table and comparison bar chart.
+#' @param category_col Optional column specification for sunburst
+#'   colour/category assignment.  Accepts the same formats as \code{score_col}
+#'   (single string or named vector).  When supplied, the sunburst chart uses
+#'   this column (instead of \code{score_col}) to determine the category colour
+#'   of each indicator.  When \code{NULL} (default), \code{score_col} is used
+#'   for both display values and category colours.
 #' @param comparison_cols Column specification for reference value columns.
 #'   Accepts the same three formats as \code{hierarchy_cols}.
 #' @param categories A list of category threshold definitions. \code{NULL} uses
@@ -65,6 +72,7 @@ widget_data <- function(
                         wijk     = "Wijk"),
     dimension_filters = NULL,
     score_col       = "waarde",
+    category_col    = NULL,
     comparison_cols = c(gemeente_gemiddelde = "Gemeente",
                         totaal_gemiddelde   = "Nederland"),
     categories      = NULL,
@@ -96,12 +104,26 @@ widget_data <- function(
     }
   }
 
+  # Normalise category_col the same way as score_col.
+  category_col_map <- NULL
+  if (!is.null(category_col)) {
+    category_col_map <- category_col
+    if (is.character(category_col) && length(category_col) == 1L &&
+        (is.null(names(category_col)) || !nzchar(names(category_col)))) {
+      if (length(filters) > 0) {
+        deepest <- filters[[length(filters)]]$col
+        category_col_map <- setNames(category_col, deepest)
+      }
+    }
+  }
+
   config <- list(
     id               = id,
     filters          = filters,
     dimensionFilters = dimension_filters,
     hierarchyCols    = hierarchy_cols,
     scoreCol         = as.list(score_col_map),
+    categoryCol      = if (!is.null(category_col_map)) as.list(category_col_map) else NULL,
     comparisonCols   = comparison_cols,
     categories       = cats,
     defaultSelection = default_selection

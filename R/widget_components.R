@@ -46,12 +46,12 @@ widget_selectors <- function(widget_data, filter = NULL) {
 #' Places the \code{<div>} for the three-ring sunburst chart with optional
 #' visual customisation.
 #'
+#' Category colours (including the \dQuote{no data} colour) are controlled
+#' by the \code{categories} argument of \code{\link{widget_data}}, not here.
+#' This function only exposes chart-level visual properties.
+#'
 #' @param widget_data A \code{quarto_widget_data} object from \code{\link{widget_data}}.
-#' @param colors Optional named list to customise segment colours. Supported keys:
-#'   \describe{
-#'     \item{\code{stroke}}{Border colour between segments (default \code{"#ffffff"}).}
-#'     \item{\code{no_data}}{Segment colour when no score available (default \code{"#bdbdbd"}).}
-#'   }
+#' @param stroke_color Border colour between segments. Default \code{"#ffffff"}.
 #' @param label_color Text colour for segment labels. Default \code{"#333333"}.
 #' @param font_size Base font size in px for labels. When \code{NULL} (default), font
 #'   size is calculated automatically from available segment width. When a numeric value
@@ -67,20 +67,20 @@ widget_selectors <- function(widget_data, filter = NULL) {
 #' sunburst_chart(wd)
 #'
 #' # Custom styling
-#' sunburst_chart(wd, colors = list(stroke = "#eeeeee"),
+#' sunburst_chart(wd, stroke_color = "#eeeeee",
 #'                label_color = "#000000", font_size = 11)
 #' }
 #'
 #' @export
-sunburst_chart <- function(widget_data, colors = NULL, label_color = NULL,
+sunburst_chart <- function(widget_data, stroke_color = NULL, label_color = NULL,
                            font_size = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
 
   opts <- list()
-  if (!is.null(colors) && is.list(colors)) opts$colors <- colors
-  if (!is.null(label_color))               opts$labelColor <- label_color
-  if (!is.null(font_size))                 opts$fontSize <- font_size
+  if (!is.null(stroke_color))              opts$strokeColor <- stroke_color
+  if (!is.null(label_color))               opts$labelColor  <- label_color
+  if (!is.null(font_size))                 opts$fontSize    <- font_size
 
   div_tag <- htmltools::div(id = paste0(id, "-sunburst"))
 
@@ -148,6 +148,10 @@ widget_header <- function(widget_data) {
 #'   table become clickable.  Clicking a row selects the corresponding indicator
 #'   in the sunburst chart and shows the comparison plot, just like clicking an
 #'   outer ring slice.  Default \code{FALSE}.
+#' @param color_score_cells Logical. When \code{TRUE}, the score value cells
+#'   in the table are given a background colour matching the sunburst category
+#'   colour (determined by \code{category_col}, or \code{score_col} when no
+#'   separate category column is configured).  Default \code{FALSE}.
 #' @return An \code{htmltools::tagList}.
 #'
 #' @examples
@@ -156,10 +160,12 @@ widget_header <- function(widget_data) {
 #' wd
 #' widget_table(wd)
 #' widget_table(wd, clickable_selector = TRUE)
+#' widget_table(wd, color_score_cells = TRUE)
 #' }
 #'
 #' @export
-widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
+widget_table <- function(widget_data, clickable_selector = FALSE,
+                         color_score_cells = FALSE, font = NULL) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-table-output")
@@ -167,7 +173,8 @@ widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
   tags <- list(
     htmltools::div(
       id = div_id,
-      `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL
+      `data-clickable-selector` = if (isTRUE(clickable_selector)) "true" else NULL,
+      `data-color-score-cells` = if (isTRUE(color_score_cells)) "true" else NULL
     )
   )
   
@@ -214,7 +221,7 @@ widget_table <- function(widget_data, clickable_selector = FALSE, font = NULL) {
 #'
 #' @export
 widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
-                        y_scale = NULL, font = NULL) {
+                        y_scale = NULL, font = NULL, x_axis_labels = FALSE) {
   .check_widget_data(widget_data)
   id <- .widget_id(widget_data)
   div_id <- paste0(id, "-plot-output")
@@ -223,6 +230,7 @@ widget_plot <- function(widget_data, colors = NULL, filtered_comparison = FALSE,
   opts <- list()
   if (!is.null(colors) && is.list(colors)) opts <- c(opts, colors)
   if (!is.null(y_scale)) opts$yScale <- y_scale
+  if (isTRUE(x_axis_labels)) opts$xAxisLabels <- TRUE
 
   tags <- list()
   if (length(opts) > 0L) {
